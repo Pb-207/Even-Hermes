@@ -1,6 +1,20 @@
 ---
 name: even-hermes
-description: Use when setting up Even Hermes (G2 glasses plugin).
+description: "Deploy the Hermes-side services (gateway, CORS fix, tunnel, local STT) that the Even Hermes G2 glasses plugin needs."
+version: 1.0.0
+author:
+  name: "Pb-207"
+  github: "Pb-207"
+tags: [even-realities, smart-glasses, hermes, speech-to-text, faster-whisper, cloudflare-tunnel, plugin-setup]
+category: devops
+platforms: [macos, linux, windows]
+published: 2026-09-10
+license: MIT
+metadata:
+  hermes:
+    related_skills: [hermes-remote-api-exposure]
+    icon: 🕶️
+    readme_url: "https://github.com/Pb-207/Even-Hermes"
 ---
 
 # Even Hermes — 安装与配置指南 / Setup Guide
@@ -25,6 +39,30 @@ sessions, talk, and read streamed replies on the glasses; configure and type on 
 | 4 | 远程访问(内网穿透) | Remote access (tunnel) |
 | 5 | 语音识别:本地部署或云 API | Speech-to-text: local or cloud |
 | 6 | 手机端配置与使用 | Phone setup & usage |
+
+## Overview
+
+Deployment companion for the **Even Hermes** plugin (Even Realities G2 smart glasses as a front-end
+for your own Hermes agent). This skill gets the Hermes-side services running — the gateway HTTP API,
+the CORS fix the phone WebView needs, optional remote access, and speech-to-text — and then walks
+through the phone setup. Every step is explained first, then confirmed before it is applied.
+本 skill 负责把 Hermes 端服务配好(网关 API、WebView 需要的 CORS 修复、可选的远程访问、语音识别),
+再完成手机端配置;每一步都会先解释、征得同意后再执行。
+
+## Prerequisites
+
+- Hermes Agent installed, with `hermes` on PATH and access to its config dir / `.env`.
+- Optional: a GPU for local speech-to-text (CPU works, slower); `cloudflared` for remote access;
+  `uv` (or a plain venv) for the bundled faster-whisper server.
+- 依赖:Hermes 已安装;本地语音识别建议有 GPU(CPU 也可);远程访问需 cloudflared。
+
+## Verification
+
+- Gateway: `curl -s http://127.0.0.1:8642/health` responds.
+- CORS fix: `scripts/check-cors.ps1 -BaseUrl <gateway> -ApiKey <key>` exits `0`.
+- Speech-to-text: `curl -s http://127.0.0.1:8765/health` returns `{"status":"ok", ...}`.
+- End to end: save the phone settings page, list sessions on the glasses, talk, and read a streamed reply.
+- 验收:网关 /health 有响应;check-cors 退出 0;STT /health 正常;手机端保存后能在眼镜上列会话、说话、看到流式回复。
 
 **脚本 / Scripts** — `scripts/start-gateway.ps1`、`scripts/start-stt.ps1`、`scripts/check-cors.ps1`、`scripts/server.py`
 **排错 / Troubleshooting** — `references/pitfalls.md`
