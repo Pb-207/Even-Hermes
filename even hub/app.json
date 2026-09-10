@@ -1,0 +1,22 @@
+{
+  "package_id": "com.pb208.evenhermes",
+  "edition": "202601",
+  "name": "Even Hermes",
+  "version": "0.3.91",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Connects to the user's self-hosted Hermes agent gateway and OpenAI-compatible speech-to-text endpoint."
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Records voice queries from the glasses microphone, transcribed and sent to Hermes."
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
+}
