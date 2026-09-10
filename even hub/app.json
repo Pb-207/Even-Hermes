@@ -2,7 +2,7 @@
   "package_id": "com.pb208.evenhermes",
   "edition": "202601",
   "name": "Even Hermes",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.10",
   "entrypoint": "index.html",
@@ -14,6 +14,10 @@
     {
       "name": "g2-microphone",
       "desc": "Records voice queries from the glasses microphone, transcribed and sent to Hermes."
+    },
+    {
+      "name": "album",
+      "desc": "Lets you attach a photo from your library to send to your own Hermes gateway."
     }
   ],
   "supported_languages": [
