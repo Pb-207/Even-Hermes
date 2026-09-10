@@ -28,6 +28,7 @@ Everything is **self-hosted**: your gateway, your keys, your machine.
 |---|---|
 | `even hub/` | **Plugin source** (TypeScript + Vite). Builds into `even-hermes.ehpk`, which you upload to Even Hub. |
 | `even-hermes-skill/` | **Companion Hermes skill**: bilingual 6-step setup guide + helper scripts (start gateway / start STT / check CORS) + pitfalls manual. |
+| `store/` | **Store screenshots** rendered at the real 576×288 glasses canvas (synthetic content). |
 
 ## Quick start
 
@@ -118,6 +119,7 @@ See `even hub/LICENSE`.
 |---|---|
 | `even hub/` | **插件源码**(TypeScript + Vite)。构建出的 `even-hermes.ehpk` 上传到 Even Hub。 |
 | `even-hermes-skill/` | **Hermes 端 skill**:中英双语六步配置引导 + 脚本(启动 gateway / 启动 STT / 检查 CORS)+ 排错手册。 |
+| `store/` | **商店截图**:按眼镜真实画布 576×288 渲染(内容为随机样例)。 |
 
 ## 快速开始
 
