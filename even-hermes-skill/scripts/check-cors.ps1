@@ -1,5 +1,5 @@
 ﻿<#
-  Even Hermes — 检查 Hermes gateway 的 /chat/stream 是否带 CORS 头
+  Hermes Lens — 检查 Hermes gateway 的 /chat/stream 是否带 CORS 头
                check whether /api/sessions/{id}/chat/stream sends CORS headers.
 
   为什么 / Why: 插件的手机 WebView 是跨域调用 gateway。某些 Hermes 版本里

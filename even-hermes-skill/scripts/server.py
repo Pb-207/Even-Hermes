@@ -1,4 +1,4 @@
-"""OpenAI-compatible + WebSocket real-time STT server (faster-whisper) for Even Hermes.
+"""OpenAI-compatible + WebSocket real-time STT server (faster-whisper) for Hermes Lens.
 
 REST:  GET  /health
        GET  /v1/models

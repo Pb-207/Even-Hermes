@@ -1,5 +1,5 @@
 ﻿<#
-  Even Hermes — 检查并启动 / 重启 Hermes gateway(插件要用的 HTTP API,默认 8642)
+  Hermes Lens — 检查并启动 / 重启 Hermes gateway(插件要用的 HTTP API,默认 8642)
                check & start (or restart) the Hermes gateway that serves the HTTP API.
 
   中:插件通过 http://<主机>:8642 调用 Hermes(API_SERVER_KEY 鉴权)。本脚本会:

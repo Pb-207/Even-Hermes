@@ -1,5 +1,5 @@
 ﻿<#
-  Even Hermes — 启动本地语音识别(STT)服务 / start the local speech-to-text server.
+  Hermes Lens — 启动本地语音识别(STT)服务 / start the local speech-to-text server.
 
   中:启动一个 OpenAI 兼容的 STT 服务(默认 127.0.0.1:8765),供插件在手机端配置页里填写。
      首次运行会下载模型(默认 medium)。推荐 GPU;纯 CPU 也能跑,只是慢。
