@@ -26,16 +26,16 @@ Everything is **self-hosted**: your gateway, your keys, your machine.
 
 | Path | What it is |
 |---|---|
-| `even hub/` | **Plugin source** (TypeScript + Vite). Builds into `even-hermes.ehpk`, which you upload to Even Hub. |
-| `even-hermes-skill/` | **Companion Hermes skill**: bilingual 6-step setup guide + helper scripts (start gateway / start STT / check CORS) + pitfalls manual. |
+| `even hub/` | **Plugin source** (TypeScript + Vite). Builds into `hermes-lens.ehpk`, which you upload to Even Hub. |
+| `hermes-lens-skill/` | **Companion Hermes skill**: bilingual 6-step setup guide + helper scripts (start gateway / start STT / check CORS) + pitfalls manual. |
 
 ## Quick start
 
 ### 1. Install the skill
 
 ```bash
-cp -r even-hermes-skill ~/.hermes/skills/even-hermes      # Linux/macOS
-# Windows: copy the folder to %LOCALAPPDATA%\hermes\skills\even-hermes
+cp -r hermes-lens-skill ~/.hermes/skills/hermes-lens      # Linux/macOS
+# Windows: copy the folder to %LOCALAPPDATA%\hermes\skills\hermes-lens
 ```
 
 Then just ask Hermes to **“set up Hermes Lens”** — it walks you through six steps:
@@ -55,12 +55,12 @@ npm run release      # vite build → release guard → evenhub pack
 1. `vite build`;
 2. `node scripts/check-release.mjs` — **release guard**: aborts if `dist/` or `app.json`
    contains a long hex string (suspected key), an `sk-…` token, or any non-placeholder URL;
-3. `evenhub pack app.json dist -o even-hermes.ehpk --sdk-ver 0.0.15`.
+3. `evenhub pack app.json dist -o hermes-lens.ehpk --sdk-ver 0.0.15`.
 
 Published artifacts are **key-free and URL-free**: every field (gateway base URL, API key, model,
 STT endpoint) is entered on the phone settings page and stored locally by the Even App.
 
-The packed artifact is always named `even-hermes.ehpk` (package id `com.pb208.evenhermes`,
+The packed artifact is always named `hermes-lens.ehpk` (package id `com.pb208.evenhermes`,
 display name `Hermes Lens`).
 
 ⚠️ Always pack `dist` — packing `.` (the whole folder) yields a ~45 MB black-screen bundle.
@@ -68,7 +68,7 @@ display name `Hermes Lens`).
 
 ### 3. Upload and install
 
-- On `hub.evenrealities.com` → your project → **Upload a build** → pick `even-hermes.ehpk` → **Add build**.
+- On `hub.evenrealities.com` → your project → **Upload a build** → pick `hermes-lens.ehpk` → **Add build**.
 - On the phone, install that build from the Even App → Plugins.
 - The Even App must satisfy the build's minimum version — with SDK 0.0.15 that is **≥ 2.2.10**.
 
@@ -100,7 +100,7 @@ See `even hub/LICENSE`.
 把 **Even Realities G2 智能眼镜**变成 **Hermes** 的随身入口:在眼镜上翻会话、用语音提问、逐字看回复;
 手机页面负责配置、打字和发图。
 
-**↑ [English version](#even-hermes)**
+**↑ [English version](#hermes-lens)**
 
 ## 它是什么
 
@@ -116,16 +116,16 @@ See `even hub/LICENSE`.
 
 | 目录 | 内容 |
 |---|---|
-| `even hub/` | **插件源码**(TypeScript + Vite)。构建出的 `even-hermes.ehpk` 上传到 Even Hub。 |
-| `even-hermes-skill/` | **Hermes 端 skill**:中英双语六步配置引导 + 脚本(启动 gateway / 启动 STT / 检查 CORS)+ 排错手册。 |
+| `even hub/` | **插件源码**(TypeScript + Vite)。构建出的 `hermes-lens.ehpk` 上传到 Even Hub。 |
+| `hermes-lens-skill/` | **Hermes 端 skill**:中英双语六步配置引导 + 脚本(启动 gateway / 启动 STT / 检查 CORS)+ 排错手册。 |
 
 ## 快速开始
 
 ### 1. 安装 skill
 
 ```bash
-cp -r even-hermes-skill ~/.hermes/skills/even-hermes      # Linux/macOS
-# Windows:把该文件夹复制到 %LOCALAPPDATA%\hermes\skills\even-hermes
+cp -r hermes-lens-skill ~/.hermes/skills/hermes-lens      # Linux/macOS
+# Windows:把该文件夹复制到 %LOCALAPPDATA%\hermes\skills\hermes-lens
 ```
 
 然后在 Hermes 里说「**配置 Hermes Lens**」,它会按六步引导你:
@@ -145,19 +145,19 @@ npm run release      # vite build → 发布校验 → evenhub pack
 1. `vite build`;
 2. `node scripts/check-release.mjs` —— **发布闸门**:若 `dist/` 或 `app.json` 里出现长 hex(疑似 key)、
    `sk-…` token,或**任何非占位符的真实网址**就直接中断打包;
-3. `evenhub pack app.json dist -o even-hermes.ehpk --sdk-ver 0.0.15`。
+3. `evenhub pack app.json dist -o hermes-lens.ehpk --sdk-ver 0.0.15`。
 
 发布产物**零 key、零网址**:所有字段(gateway 地址、API key、模型、STT 地址)都在**手机配置页**填写,
 由 Even App 存在本机。
 
-打包产物固定叫 `even-hermes.ehpk`(包名 `com.pb208.evenhermes`,显示名 `Hermes Lens`)。
+打包产物固定叫 `hermes-lens.ehpk`(包名 `com.pb208.evenhermes`,显示名 `Hermes Lens`)。
 
 ⚠️ 一定要打包 `dist`(用 `.` 会把源码/node_modules 打进去 → 约 45 MB 且黑屏)。
 ⚠️ `@evenrealities/evenhub-cli` 需 **≥ 0.1.14**(旧版本不认 `--sdk-ver`)。
 
 ### 3. 上传并安装
 
-- 到 `hub.evenrealities.com` → 你的项目 → **Upload a build** → 选择 `even-hermes.ehpk` → **Add build**;
+- 到 `hub.evenrealities.com` → 你的项目 → **Upload a build** → 选择 `hermes-lens.ehpk` → **Add build**;
 - 手机 Even App → Plugins 安装该 build;
 - Even App 版本需满足 build 的最低要求——SDK 0.0.15 下为 **≥ 2.2.10**。
 

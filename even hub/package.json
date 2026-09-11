@@ -10,7 +10,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "check:release": "node scripts/check-release.mjs",
-    "release": "vite build && node scripts/check-release.mjs && evenhub pack app.json dist -o even-hermes.ehpk --sdk-ver 0.0.15"
+    "release": "vite build && node scripts/check-release.mjs && evenhub pack app.json dist -o hermes-lens.ehpk --sdk-ver 0.0.15"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.14",

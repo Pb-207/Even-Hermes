@@ -93,7 +93,7 @@ DEVICE = os.environ.get("STT_DEVICE", "cuda")
 COMPUTE = os.environ.get("STT_COMPUTE", "float16" if DEVICE == "cuda" else "int8")
 DEFAULT_LANGUAGE = os.environ.get("STT_LANGUAGE", "zh") or None
 
-app = FastAPI(title="even-hermes-local-stt")
+app = FastAPI(title="hermes-lens-local-stt")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _model = None

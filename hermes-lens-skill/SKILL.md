@@ -1,5 +1,5 @@
 ---
-name: even-hermes
+name: hermes-lens
 description: "Deploy the Hermes-side services (gateway, CORS fix, tunnel, local STT) that the Hermes Lens G2 glasses plugin needs."
 version: 1.0.0
 author:
@@ -14,7 +14,7 @@ metadata:
   hermes:
     related_skills: [hermes-remote-api-exposure]
     icon: 🕶️
-    readme_url: "https://github.com/Pb-207/Even-Hermes"
+    readme_url: "https://github.com/Pb-207/hermes-lens"
 ---
 
 # Hermes Lens — 安装与配置指南 / Setup Guide
@@ -67,8 +67,8 @@ through the phone setup. Every step is explained first, then confirmed before it
 **脚本 / Scripts** — `scripts/start-gateway.ps1`、`scripts/start-stt.ps1`、`scripts/check-cors.ps1`、`scripts/server.py`
 **排错 / Troubleshooting** — `references/pitfalls.md`
 
-**安装本 skill / Installing this skill** — 把整个 `even-hermes-skill/` 目录复制到 `~/.hermes/skills/even-hermes/`(或 `$HERMES_HOME/skills/`),Hermes 会在需要时自动加载。
-Copy this whole folder to `~/.hermes/skills/even-hermes/` (or `$HERMES_HOME/skills/`) so Hermes loads it automatically.
+**安装本 skill / Installing this skill** — 把整个 `hermes-lens-skill/` 目录复制到 `~/.hermes/skills/hermes-lens/`(或 `$HERMES_HOME/skills/`),Hermes 会在需要时自动加载。
+Copy this whole folder to `~/.hermes/skills/hermes-lens/` (or `$HERMES_HOME/skills/`) so Hermes loads it automatically.
 
 **脚本运行环境 / Script runtime** — 脚本是 **Windows PowerShell 5.1+**(`.ps1`,已带 UTF-8 BOM,中文注释不会乱码);非 Windows 请按正文里的命令手工执行(STT 服务本身是纯 Python)。
 The scripts target **Windows PowerShell 5.1+** (`.ps1`, UTF-8 BOM so Chinese comments do not garble). On other OSes run the equivalent commands from the step text — the STT server itself is plain Python.
