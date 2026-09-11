@@ -10,7 +10,7 @@ type Lang = 'zh' | 'en'
 // 手机端配置页文案(中/英)。切换语言时整个页面按此重渲染。
 const T: Record<Lang, Record<string, string>> = {
   zh: {
-    title: 'Even Hermes',
+    title: 'Hermes Lens',
     language: '语言 / Language',
     gateway: 'Hermes 网关',
     baseUrl: '基础地址',
@@ -30,7 +30,7 @@ const T: Record<Lang, Record<string, string>> = {
     testing: '… 测试中',
   },
   en: {
-    title: 'Even Hermes',
+    title: 'Hermes Lens',
     language: 'Language / 语言',
     gateway: 'Hermes gateway',
     baseUrl: 'Base URL',

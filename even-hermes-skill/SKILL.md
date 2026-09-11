@@ -1,6 +1,6 @@
 ---
 name: even-hermes
-description: "Deploy the Hermes-side services (gateway, CORS fix, tunnel, local STT) that the Even Hermes G2 glasses plugin needs."
+description: "Deploy the Hermes-side services (gateway, CORS fix, tunnel, local STT) that the Hermes Lens G2 glasses plugin needs."
 version: 1.0.0
 author:
   name: "Pb-207"
@@ -17,11 +17,11 @@ metadata:
     readme_url: "https://github.com/Pb-207/Even-Hermes"
 ---
 
-# Even Hermes — 安装与配置指南 / Setup Guide
+# Hermes Lens — 安装与配置指南 / Setup Guide
 
-**Even Hermes** 让 Even Realities G2 智能眼镜变成 Hermes 的随身入口:眼镜端列会话、说话提问、流式看回复;手机端配置与打字。
+**Hermes Lens** 让 Even Realities G2 智能眼镜变成 Hermes 的随身入口:眼镜端列会话、说话提问、流式看回复;手机端配置与打字。
 
-**Even Hermes** turns Even Realities G2 glasses into a pocket front-end for Hermes: list
+**Hermes Lens** turns Even Realities G2 glasses into a pocket front-end for Hermes: list
 sessions, talk, and read streamed replies on the glasses; configure and type on the phone.
 
 > **语言 / Language** — 本文件是中英双语。**只输出用户偏好的那一种语言**,不要两种都念。
@@ -42,7 +42,7 @@ sessions, talk, and read streamed replies on the glasses; configure and type on 
 
 ## Overview
 
-Deployment companion for the **Even Hermes** plugin (Even Realities G2 smart glasses as a front-end
+Deployment companion for the **Hermes Lens** plugin (Even Realities G2 smart glasses as a front-end
 for your own Hermes agent). This skill gets the Hermes-side services running — the gateway HTTP API,
 the CORS fix the phone WebView needs, optional remote access, and speech-to-text — and then walks
 through the phone setup. Every step is explained first, then confirmed before it is applied.

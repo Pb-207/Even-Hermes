@@ -1,4 +1,4 @@
-# Even Hermes
+# Hermes Lens
 
 Turn **Even Realities G2** smart glasses into a pocket front-end for **Hermes**: browse your
 Hermes sessions on the glasses, ask questions by voice, and watch replies stream in word by
@@ -38,7 +38,7 @@ cp -r even-hermes-skill ~/.hermes/skills/even-hermes      # Linux/macOS
 # Windows: copy the folder to %LOCALAPPDATA%\hermes\skills\even-hermes
 ```
 
-Then just ask Hermes to **“set up Even Hermes”** — it walks you through six steps:
+Then just ask Hermes to **“set up Hermes Lens”** — it walks you through six steps:
 how it works → configure the gateway (with security notes) → check & fix the CORS bug →
 remote access (tunnel) → speech-to-text (local or cloud) → phone setup & usage.
 
@@ -61,7 +61,7 @@ Published artifacts are **key-free and URL-free**: every field (gateway base URL
 STT endpoint) is entered on the phone settings page and stored locally by the Even App.
 
 The packed artifact is always named `even-hermes.ehpk` (package id `com.pb208.evenhermes`,
-display name `Even Hermes`).
+display name `Hermes Lens`).
 
 ⚠️ Always pack `dist` — packing `.` (the whole folder) yields a ~45 MB black-screen bundle.
 ⚠️ `@evenrealities/evenhub-cli` must be **≥ 0.1.14** (older versions reject `--sdk-ver`).
@@ -128,7 +128,7 @@ cp -r even-hermes-skill ~/.hermes/skills/even-hermes      # Linux/macOS
 # Windows:把该文件夹复制到 %LOCALAPPDATA%\hermes\skills\even-hermes
 ```
 
-然后在 Hermes 里说「**配置 Even Hermes**」,它会按六步引导你:
+然后在 Hermes 里说「**配置 Hermes Lens**」,它会按六步引导你:
 运行逻辑 → 配置 gateway(含安全提示)→ 检查/修复 CORS bug → 远程访问(隧道)→
 语音识别(本地或云)→ 手机端配置与使用。
 
@@ -150,7 +150,7 @@ npm run release      # vite build → 发布校验 → evenhub pack
 发布产物**零 key、零网址**:所有字段(gateway 地址、API key、模型、STT 地址)都在**手机配置页**填写,
 由 Even App 存在本机。
 
-打包产物固定叫 `even-hermes.ehpk`(包名 `com.pb208.evenhermes`,显示名 `Even Hermes`)。
+打包产物固定叫 `even-hermes.ehpk`(包名 `com.pb208.evenhermes`,显示名 `Hermes Lens`)。
 
 ⚠️ 一定要打包 `dist`(用 `.` 会把源码/node_modules 打进去 → 约 45 MB 且黑屏)。
 ⚠️ `@evenrealities/evenhub-cli` 需 **≥ 0.1.14**(旧版本不认 `--sdk-ver`)。
