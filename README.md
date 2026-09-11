@@ -89,7 +89,7 @@ Follow the skill's guided setup: gateway base URL + API key, speech-to-text endp
 
 ## License
 
-See `even hub/LICENSE`.
+MIT — see [`LICENSE`](LICENSE). The plugin under `even hub/` carries the same licence.
 
 ---
 

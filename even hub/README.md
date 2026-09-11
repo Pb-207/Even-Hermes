@@ -69,4 +69,4 @@ Everything is configured at runtime from the phone setup screen and persisted in
 
 ## License
 
-[MIT](LICENSE) © 2026 Adrian Kay
+[MIT](LICENSE) © 2026 Pb-207
