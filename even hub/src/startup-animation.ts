@@ -7,7 +7,7 @@ import {
   OsEventTypeList,
   ImageRawDataUpdateResult,
 } from '@evenrealities/even_hub_sdk'
-import { LOGO_SIZE, LOGO_MARK_PNG_BASE64, LOGO_PORTRAIT_PNG_BASE64 } from './logo-data'
+import { LOGO_SIZE, LOGO_MARK_PNG_BASE64, LOGO_PORTRAIT_PNG_BASE64, logoMarkBytes, logoPortraitBytes } from './logo-data'
 import { APP_DISPLAY_NAME, makeLayoutContainers, sleep } from './startup-page'
 
 /**
@@ -30,6 +30,12 @@ const C_HINT = 11
 const C_LOGO = 12
 /** 「粗体」副本容器:与名字容器重叠、右移几像素,形成 faux bold */
 const C_NAME_BOLD = 13
+
+/**
+ * "清空"用空格而不是空串:实测真机上 `content: ''` 会被当作"无变化"忽略,
+ * 导致清屏/闪烁失效(模拟器则正常)。任何"看不见但要有内容"的地方都用它。
+ */
+const EMPTY = ' '
 
 /** 打字机要打出的名字(固定字符串,便于校准居中偏移) */
 export const NAME_TEXT = 'Hermes Lens'
@@ -99,7 +105,7 @@ function hintBox(content: string): TextContainerProperty {
 /** 组装动画页的容器(建页与重建共用)。 */
 function animationPageParts(): { textObject: TextContainerProperty[]; imageObject: ImageContainerProperty[] } {
   return {
-    textObject: [nameBox(''), nameBox('', BOLD_DX, BOLD_DY, true), hintBox('')],
+    textObject: [nameBox(EMPTY), nameBox(EMPTY, BOLD_DX, BOLD_DY, true), hintBox(EMPTY)],
     imageObject: [new ImageContainerProperty({
       xPosition: LOGO_X,
       yPosition: LOGO_Y,
@@ -114,7 +120,9 @@ function animationPageParts(): { textObject: TextContainerProperty[]; imageObjec
 /** 创建启动动画页:LOGO 容器 + 名字行(含粗体副本)+ 提示行。
  *  首帧就有名字,保证启动即有渲染。若页面已存在(例如 WebView 热重载后),
  *  退化为用 rebuildPageContainer 换成动画页,保证动画照常播放。 */
-export async function createAnimationPage(bridge: EvenAppBridge): Promise<boolean> {
+export type PageMode = 'new' | 'reuse' | 'fail'
+
+export async function createAnimationPage(bridge: EvenAppBridge): Promise<PageMode> {
   const { textObject, imageObject } = animationPageParts()
   try {
     const result = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
@@ -122,7 +130,7 @@ export async function createAnimationPage(bridge: EvenAppBridge): Promise<boolea
       textObject,
       imageObject,
     }))
-    if (result === 0) return true
+    if (result === 0) return 'new'
     console.warn('[startup] animation page rejected:', result, '-> try rebuild')
   } catch (err) {
     console.warn('[startup] animation page failed:', err, '-> try rebuild')
@@ -133,43 +141,65 @@ export async function createAnimationPage(bridge: EvenAppBridge): Promise<boolea
       textObject,
       imageObject,
     }))
-    return true
+    return 'reuse'
   } catch (err) {
     console.error('[startup] animation rebuild failed:', err)
-    return false
+    return 'fail'
   }
 }
+
+export type LogoPush = { ok: boolean; how: 'bytes' | 'base64' | 'none'; ms: number }
 
 /** 把 LOGO 推给图像容器(必须在建页之后调用)。
- *  实测:宿主期望的是**真实图片文件字节**(PNG,base64 传入);裸灰度字节一律 sendFailed。 */
-export async function pushLogo(bridge: EvenAppBridge, which: 'mark' | 'portrait'): Promise<boolean> {
-  try {
-    const res = await bridge.updateImageRawData({
-      containerID: C_LOGO,
-      containerName: 'logo',
-      imageData: which === 'mark' ? LOGO_MARK_PNG_BASE64 : LOGO_PORTRAIT_PNG_BASE64,
-    })
-    if (res !== ImageRawDataUpdateResult.success) {
-      console.warn('[startup] logo push failed:', which, res)
-      return false
+ *  宿主差异:模拟器只认 base64 的真实图片字节;真机更可能吃文档推荐的裸字节(number[])。
+ *  所以两种都试,谁先成功算谁,并把结果返回给调用方做诊断。 */
+export async function pushLogo(bridge: EvenAppBridge, which: 'mark' | 'portrait'): Promise<LogoPush> {
+  const mark = which === 'mark'
+  const variants: Array<{ how: 'bytes' | 'base64'; data: Uint8Array | string }> = [
+    { how: 'bytes', data: mark ? logoMarkBytes() : logoPortraitBytes() },
+    { how: 'base64', data: mark ? LOGO_MARK_PNG_BASE64 : LOGO_PORTRAIT_PNG_BASE64 },
+  ]
+  for (const v of variants) {
+    const t0 = Date.now()
+    try {
+      const res = await bridge.updateImageRawData({
+        containerID: C_LOGO,
+        containerName: 'logo',
+        imageData: v.data,
+      })
+      const ms = Date.now() - t0
+      console.log('[startup] logo', which, v.how, '->', res, ms + 'ms')
+      if (res === ImageRawDataUpdateResult.success) return { ok: true, how: v.how, ms }
+    } catch (err) {
+      console.warn('[startup] logo', which, v.how, 'threw:', err)
     }
-    return true
-  } catch (err) {
-    console.warn('[startup] logo push threw:', which, err)
-    return false
   }
+  return { ok: false, how: 'none', ms: 0 }
 }
 
-/** 开场:先出现 He 图标,再换成 Hermes 的黑白头像。 */
-export async function playLogoIntro(bridge: EvenAppBridge): Promise<void> {
-  const first = await pushLogo(bridge, 'mark')
-  if (!first) {
-    // LOGO 推不上去时不能留白屏:直接先把名字显示出来
-    void bridge.textContainerUpgrade({ containerID: C_NAME, containerName: 'name', content: NAME_TEXT }).catch(() => {})
-  }
+/** 名字两行(主 + 粗体副本)一起设,用于字面兜底。 */
+async function setPlainName(bridge: EvenAppBridge, content: string): Promise<void> {
+  try {
+    await bridge.textContainerUpgrade({ containerID: C_NAME, containerName: 'name', content })
+    void bridge.textContainerUpgrade({ containerID: C_NAME_BOLD, containerName: 'name-bold', content }).catch(() => {})
+  } catch { /* ignore */ }
+}
+
+/**
+ * 开场:先出现 He 图标,再换成 Hermes 的黑白头像。
+ * 顺带把「页面模式 + 两次推送的结果/耗时」写到提示行(打字机期间可见),用于真机诊断。
+ */
+export async function playLogoIntro(bridge: EvenAppBridge, pageMode: PageMode): Promise<string> {
+  const m = await pushLogo(bridge, 'mark')
+  if (!m.ok) await setPlainName(bridge, NAME_TEXT) // LOGO 推不上去时不能留白屏
   await sleep(LOGO_MARK_MS)
-  await pushLogo(bridge, 'portrait')
+  const p = await pushLogo(bridge, 'portrait')
   await sleep(LOGO_PORTRAIT_MS)
+  const tag = (r: LogoPush): string => (r.ok ? (r.how === 'bytes' ? 'B' : 'b') + r.ms : 'x')
+  const dbg = `${pageMode} M:${tag(m)} P:${tag(p)}`
+  // 只在日志里留诊断信息(真机实测:裸字节可用;推送耗时 ~250ms/~620ms,比模拟器慢很多)
+  console.log('[startup] intro', dbg)
+  return dbg
 }
 
 /** 「Hermes Lens」逐字打出(粗体副本同步,但不等它,免得拖慢主行)。 */
@@ -181,8 +211,8 @@ export async function typeName(bridge: EvenAppBridge): Promise<void> {
       containerName: bold ? 'name-bold' : 'name',
       content,
     }).catch(() => undefined) as Promise<unknown>
-  await setText('', false)
-  void setText('', true)
+  await setText(EMPTY, false)
+  void setText(EMPTY, true)
   for (let i = 1; i <= NAME_TEXT.length; i += 1) {
     const slice = NAME_TEXT.slice(0, i)
     await setText(slice, false)
@@ -231,7 +261,7 @@ export function waitForStartTap(bridge: EvenAppBridge): Promise<void> {
       void bridge.textContainerUpgrade({
         containerID: C_HINT,
         containerName: 'hint',
-        content: visible ? HINT_TEXT : '',
+        content: visible ? HINT_TEXT : EMPTY,
       }).catch(() => {})
     }, BLINK_MS)
   })

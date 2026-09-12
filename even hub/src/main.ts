@@ -19,7 +19,7 @@ async function boot(): Promise<void> {
 
   // 官方要求:app 启动后眼镜上必须「立刻」有渲染,不能黑屏。
   // 第一步就建启动动画页(LOGO + 名称),所以首帧一定有内容。
-  const animPage = await createAnimationPage(bridge)
+  const pageMode = await createAnimationPage(bridge)
 
   // 运行时提示页:始终带「Configure / 配置」按钮(否则保存启动后按钮会消失)
   const mountShim = (): void => {
@@ -55,9 +55,9 @@ async function boot(): Promise<void> {
   const config = await loadConfig(bridge)
   const configured = isConfigured(config)
 
-  if (animPage) {
-    // 1. LOGO 2. 打字机打出名字 3. —— Tap to start —— 闪烁,直到点击
-    await playLogoIntro(bridge)
+  if (pageMode !== 'fail') {
+    // 1. LOGO(He -> 头像) 2. 打字机打出名字 3. —— Tap to start —— 闪烁,直到点击
+    await playLogoIntro(bridge, pageMode)
     await typeName(bridge)
     await waitForStartTap(bridge)
     // 点击后换成提示页(同一批 runtime 容器布局,LOGO 图像容器随重建一起消失)
