@@ -98,7 +98,7 @@ function wrapWords(text: string, width = 38): string[] {
   return out
 }
 
-const MENU_WINDOW = 5; // 每屏最多 5 个真实项 + 2 个省略号 = 7 行 (主容器 232px≈8 行,留余量避免固件滚动)
+const MENU_WINDOW = 6; // 每屏最多 6 个真实项 + 上下省略号 = 8 行 (主容器 232px≈8 行,刚好铺满)
 
 function itemMenuLabel(item: HomeItem): string {
   if (item.kind === 'new') return LANG_ZH ? '+ 新建会话' : '+ new session';
