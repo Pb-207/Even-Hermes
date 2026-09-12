@@ -134,4 +134,39 @@ describe('openSttStream', () => {
     ws.emit({ type: 'Error', message: 'unauthorized' })
     expect(unavailable).toBe(true)
   })
+  it('ready() resolves true once Started arrives', async () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    const st = openSttStream(CFG)
+    const p = st.ready(1000)
+    const ws = FakeWS.last!
+    ws.open()
+    ws.emit({ type: 'Started' })
+    await expect(p).resolves.toBe(true)
+  })
+
+  it('ready() resolves false when the stream never becomes usable', async () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    const st = openSttStream(CFG)
+    await expect(st.ready(30)).resolves.toBe(false)
+  })
+
+  it('buffers frames during the handshake and flushes them once Started arrives', async () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    const st = openSttStream(CFG)
+    const ws = FakeWS.last!
+    st.send(new Uint8Array([1, 2, 3]))       // 还没 open → 缓冲
+    expect(ws.sent.some((x) => x instanceof Uint8Array)).toBe(false)
+    ws.open()
+    ws.emit({ type: 'Started' })
+    expect(ws.sent.some((x) => x instanceof Uint8Array)).toBe(true)
+  })
+
+  it('reconnects once when the socket closes before Started (真机偶发 1006)', async () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    openSttStream(CFG)
+    const first = FakeWS.last!
+    first.close()                            // 未 Started 就断开
+    await new Promise((r) => setTimeout(r, 300))
+    expect(FakeWS.last).not.toBe(first)      // 已经重连(新 socket)
+  })
 })

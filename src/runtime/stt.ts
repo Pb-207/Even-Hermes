@@ -56,6 +56,8 @@ export async function transcribe(cfg: SttConfig, wav: Blob, signal?: AbortSignal
 export type SttStream = {
   /** 推一帧 PCM(不可用时是 no-op) */
   send(pcm: Uint8Array): void
+  /** 等流就绪(收到服务端 Started);超时返回 false。开麦前先等它,避免握手期间丢帧。 */
+  ready(timeoutMs?: number): Promise<boolean>
   /** 停止推流并等待服务端 FINAL(最多 waitMs),返回最终文本;不可用/超时返回 null */
   finish(waitMs?: number): Promise<string | null>
   close(): void
@@ -82,6 +84,15 @@ export function openSttStream(cfg: SttConfig, handlers: SttStreamHandlers = {}):
   let lastPartial = ''
   let finalText: string | null = null
   let onFinalWait: ((t: string | null) => void) | null = null
+  let pending: Uint8Array[] = []     // 握手期间收到的帧,open 后补发
+  let readyResolvers: Array<(ok: boolean) => void> = []
+  let attempts = 0
+
+  const markReady = (ok: boolean) => {
+    const rs = readyResolvers
+    readyResolvers = []
+    for (const r of rs) r(ok)
+  }
 
   const extract = (raw: unknown): string => {
     try {
@@ -93,7 +104,9 @@ export function openSttStream(cfg: SttConfig, handlers: SttStreamHandlers = {}):
     }
   }
 
-  try {
+  const connect = (): void => {
+    attempts += 1
+    try {
     ws = new WebSocket(toWsUrl(cfg.baseUrl, cfg.apiKey))
     ws.binaryType = 'arraybuffer'
     ws.onopen = () => {
@@ -109,32 +122,74 @@ export function openSttStream(cfg: SttConfig, handlers: SttStreamHandlers = {}):
       if (!raw) return
       try {
         const o = JSON.parse(raw) as { type?: string; is_final?: boolean }
-        if (o.type === 'Started') { usable = true; return }
+        if (o.type === 'Started') {
+          usable = true
+          console.log('[stt] ws streaming available (attempt ' + attempts + ')')
+          try {
+            for (const f of pending) ws?.send(f)
+            if (pending.length) console.log('[stt] flushed', pending.length, 'buffered frames')
+          } catch { /* ignore */ }
+          pending = []
+          markReady(true)
+          return
+        }
         if (o.type === 'Error') { handlers.onUnavailable?.(); return }
         if (o.type === 'Results') {
           const text = extract(o)
           if (!text) return
           if (o.is_final) {
             finalText = text
+            console.log('[stt] ws FINAL:', text.slice(0, 30))
             handlers.onFinal?.(text)
             onFinalWait?.(text)
           } else if (text !== lastPartial) {
             lastPartial = text
+            console.log('[stt] ws partial:', text.slice(0, 30))
             handlers.onPartial?.(text)
           }
         }
       } catch { /* ignore */ }
     }
     ws.onerror = () => { if (!usable) handlers.onUnavailable?.() }
-    ws.onclose = () => { closed = true; if (!usable) handlers.onUnavailable?.() }
-  } catch {
-    handlers.onUnavailable?.()
+    ws.onclose = (ev) => {
+      console.log('[stt] ws closed code=', ev?.code, 'usable=', usable, 'attempt=', attempts)
+      if (closed) return
+      if (!usable && attempts < 2) {
+        // 首次连接被异常关闭(真机/隧道上偶发 close code 1006)→ 立刻重试一次再谈回落
+        console.warn('[stt] ws closed before Started -> retry')
+        setTimeout(() => { if (!closed) connect() }, 150)
+        return
+      }
+      closed = true
+      if (!usable) { markReady(false); handlers.onUnavailable?.() }
+    }
+    } catch {
+      closed = true
+      markReady(false)
+      handlers.onUnavailable?.()
+    }
   }
+
+  connect()
 
   return {
     get usable() { return usable },
+    ready(timeoutMs = 1200) {
+      if (usable) return Promise.resolve(true)
+      if (closed) return Promise.resolve(false)
+      return new Promise<boolean>((resolve) => {
+        let settled = false
+        const done = (ok: boolean) => { if (!settled) { settled = true; resolve(ok) } }
+        readyResolvers.push(done)
+        setTimeout(() => done(usable), timeoutMs)
+      })
+    },
     send(pcm: Uint8Array) {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      if (closed) return
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (pending.length < 300) pending.push(pcm)   // 握手期间先缓存,open 后补发
+        return
+      }
       try { ws.send(pcm) } catch { /* ignore */ }
     },
     finish(waitMs = 1500) {

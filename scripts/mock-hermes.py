@@ -124,14 +124,22 @@ class Handler(BaseHTTPRequestHandler):
 
             frame("run.started", {"run_id": "demo"})
             time.sleep(0.4)
-            # 工具阶段 → 状态栏显示 | thinking
-            for tool in ("thinking", "reading files", "running terminal", "thinking"):
+            # 交错序列:工具 → 文本 → 工具 → 文本(用来验证工具行留在它发生的位置,
+            # 而不是被整体提到回复之前);中间插一条空 label 的事件,验证它不产生行。
+            half = max(1, len(REPLY_DELTAS) // 2)
+            for tool in ("thinking", "reading files"):
                 frame("tool.progress", {"tool_name": tool, "detail": ""})
                 time.sleep(0.35)
-            time.sleep(1.2)
-            for chunk in REPLY_DELTAS:
+            for chunk in REPLY_DELTAS[:half]:
                 frame("assistant.delta", {"delta": chunk})
-                time.sleep(0.9)
+                time.sleep(0.7)
+            frame("tool.progress", {"tool_name": "", "detail": ""})
+            for tool in ("running terminal", "thinking"):
+                frame("tool.progress", {"tool_name": tool, "detail": ""})
+                time.sleep(0.35)
+            for chunk in REPLY_DELTAS[half:]:
+                frame("assistant.delta", {"delta": chunk})
+                time.sleep(0.7)
             frame("assistant.completed", {"content": "".join(REPLY_DELTAS)})
             frame("run.completed", {"status": "ok"})
             return

@@ -70,6 +70,38 @@ function makeMockBridge(): EvenAppBridge {
   return mock as unknown as EvenAppBridge
 }
 
+
+/** DEV-only 假麦克风:模拟器不发麦克风数据。`?fakemic=1` 时按 100ms 推 1600 样点。 */
+function withFakeMic(bridge: EvenAppBridge): EvenAppBridge {
+  const listeners: Array<(e: unknown) => void> = []
+  let timer: ReturnType<typeof setInterval> | null = null
+  console.log('[dev] fake mic enabled')
+  return new Proxy(bridge, {
+    get(target, prop, recv) {
+      if (prop === 'onEvenHubEvent') {
+        return (cb: (e: unknown) => void) => {
+          listeners.push(cb)
+          return (target as unknown as { onEvenHubEvent: (c: unknown) => () => void }).onEvenHubEvent(cb)
+        }
+      }
+      if (prop === 'audioControl') {
+        return async (open: boolean) => {
+          const r = await (target as unknown as { audioControl: (o: boolean) => Promise<boolean> }).audioControl(open)
+          if (open) {
+            if (!timer) timer = setInterval(() => {
+              const frame = new Array(3200).fill(0)
+              for (const cb of listeners) cb({ audioEvent: { audioPcm: frame } })
+            }, 100)
+          } else if (timer) { clearInterval(timer); timer = null }
+          return r
+        }
+      }
+      const v = Reflect.get(target, prop, recv)
+      return typeof v === 'function' ? v.bind(target) : v
+    },
+  })
+}
+
 export async function getBridgeWithDevFallback(): Promise<EvenAppBridge> {
   if (!import.meta.env.DEV) {
     return waitForEvenAppBridge()
@@ -79,7 +111,8 @@ export async function getBridgeWithDevFallback(): Promise<EvenAppBridge> {
     const inst = EvenAppBridge.getInstance()
     if (inst && typeof inst.createStartUpPageContainer === 'function') {
       console.log('[dev] using the initialized EvenAppBridge singleton')
-      return inst
+      const fm = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fakemic') === '1'
+      return fm ? withFakeMic(inst) : inst
     }
   } catch (err) {
     console.log('[dev] EvenAppBridge.getInstance() unavailable:', String(err))
