@@ -17,7 +17,7 @@ const STREAM_FLUSH_MS = 100
 
 // 打字机揭示间隔(ms):每拍 reveal 前进 step 个字符;调大 = 更慢
 const REVEAL_TICK_MS = 40
-import { PcmRecorder, MIN_USEFUL_BYTES, pcmToWav, toPcmBytes } from './audio'
+import { PcmRecorder, MIN_USEFUL_BYTES, pcmToWav } from './audio'
 import { transcribe, openSttStream, SttError, type SttStream } from './stt'
 import { streamRespond, listSessions, getSessionMessages, sessionChat, sessionChatStream, deleteSession, createSession, HermesError } from './hermes'
 import { appendTurn, loadHistory, type TurnEntry } from './history'
@@ -286,7 +286,6 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
       case 'mic_on': {
         recorder.reset()
         sttStream?.close()
-        console.log('[runtime] mic_on -> open ws stream')
         sttStream = openSttStream(config.stt, {
           onPartial: (text) => { void dispatch({ kind: 'stt_partial', text }) },
         })
@@ -309,8 +308,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
         }
         // 流式:停止推流后等服务端 FINAL(它按 ~0.7s 静音判定),拿到就直接用
         if (sttStream) {
-          const streamed = await sttStream.finish(4000)
-          console.log('[runtime] ws finish ->', streamed === null ? 'null (REST fallback)' : JSON.stringify(streamed.slice(0, 40)))
+          const streamed = await sttStream.finish(1800)
           sttStream.close()
           sttStream = null
           if (streamed && streamed.trim()) {
@@ -506,9 +504,8 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
   // 4. Subscribe to bridge events.
   const unsubHub = bridge.onEvenHubEvent((evt) => {
     if (evt.audioEvent?.audioPcm) {
-      // 真机送来的是 number[](见 audio.ts 的 toPcmBytes 注释)
-      const pcm = toPcmBytes(evt.audioEvent.audioPcm)
-      if (pcm) {
+      const pcm = evt.audioEvent.audioPcm
+      if (pcm instanceof Uint8Array) {
         recorder.append(pcm)
         sttStream?.send(pcm)
       }

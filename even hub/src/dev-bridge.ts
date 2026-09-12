@@ -70,59 +70,16 @@ function makeMockBridge(): EvenAppBridge {
   return mock as unknown as EvenAppBridge
 }
 
-/**
- * DEV-only「假麦克风」:模拟器不会发麦克风数据,只有真机发。
- * 打开 `?fakemic=1` 后,audioControl(true) 期间按 100 ms 推 1600 个样点(3200 B),
- * 载荷用 **number[]** —— 与真机形态一致 —— 用来在没有麦克风的环境里验证
- * 「音频帧归一化 -> WS 流 -> partial 上屏」整条链路。
- */
-function withFakeMic(bridge: EvenAppBridge): EvenAppBridge {
-  const listeners: Array<(e: unknown) => void> = []
-  let timer: ReturnType<typeof setInterval> | null = null
-  console.log('[dev] fake mic enabled (number[] frames, 1600 samples / 100 ms)')
-  return new Proxy(bridge, {
-    get(target, prop, recv) {
-      if (prop === 'onEvenHubEvent') {
-        return (cb: (e: unknown) => void) => {
-          listeners.push(cb)
-          return (target as unknown as { onEvenHubEvent: (c: unknown) => () => void }).onEvenHubEvent(cb)
-        }
-      }
-      if (prop === 'audioControl') {
-        return async (open: boolean) => {
-          const r = await (target as unknown as { audioControl: (o: boolean) => Promise<boolean> }).audioControl(open)
-          if (open) {
-            if (!timer) {
-              timer = setInterval(() => {
-                const frame: number[] = new Array(3200).fill(0)
-                for (const cb of listeners) cb({ audioEvent: { audioPcm: frame } })
-              }, 100)
-            }
-          } else if (timer) {
-            clearInterval(timer)
-            timer = null
-          }
-          return r
-        }
-      }
-      const v = Reflect.get(target, prop, recv)
-      return typeof v === 'function' ? v.bind(target) : v
-    },
-  })
-}
-
 export async function getBridgeWithDevFallback(): Promise<EvenAppBridge> {
   if (!import.meta.env.DEV) {
     return waitForEvenAppBridge()
   }
-  const wantFakeMic = typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('fakemic') === '1'
   // 模拟器等宿主里单例可能已经就绪:优先直接取,避免 race 超时后误用 mock bridge
   try {
     const inst = EvenAppBridge.getInstance()
     if (inst && typeof inst.createStartUpPageContainer === 'function') {
       console.log('[dev] using the initialized EvenAppBridge singleton')
-      return wantFakeMic ? withFakeMic(inst) : inst
+      return inst
     }
   } catch (err) {
     console.log('[dev] EvenAppBridge.getInstance() unavailable:', String(err))
