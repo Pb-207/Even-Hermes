@@ -166,11 +166,13 @@ export function pageTextAt(rows: string[], start: number): string {
  */
 export function viewRows(
   h: HermesMessage[] | undefined,
-  opts: { transcript?: string; reply?: string; reveal?: number; toolMarks?: ToolMark[] } = {},
+  opts: { transcript?: string; reply?: string; reveal?: number; toolMarks?: ToolMark[]; transcriptLast?: boolean } = {},
 ): string[] {
   const msgs: HermesMessage[] = [...(h ?? [])]
   const t = (opts.transcript ?? '').trim()
-  if (t) msgs.push({ role: 'user', text: t })
+  // 录音/转写中:用户正在说的那句放到最后 —— 视图跟随末尾,放前面会被旧回复顶出可视页,
+  // 表现为"说着话画面却一动不动"(用户以为没在转写)。其余状态保持 请求 → 工具 → 回复 的顺序。
+  if (t && !opts.transcriptLast) msgs.push({ role: 'user', text: t })
   const full = opts.reply ?? ''
   const n = opts.reveal == null ? full.length : Math.max(0, Math.min(full.length, opts.reveal))
   // 工具调用按「发生位置」插进回复里:一轮里 工具→文本→工具→文本 的顺序不会被拉平
@@ -189,5 +191,6 @@ export function viewRows(
     if (label && m.at <= n) msgs.push({ role: 'meta', text: '[tool] ' + label })
   }
   if (n > cursor) msgs.push({ role: first ? 'assistant' : 'assistantMore', text: full.slice(cursor, n) })
+  if (t && opts.transcriptLast) msgs.push({ role: 'user', text: t })
   return historyRows(msgs)
 }
