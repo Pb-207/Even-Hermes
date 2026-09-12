@@ -17,7 +17,7 @@ const STREAM_FLUSH_MS = 100
 
 // 打字机揭示间隔(ms):每拍 reveal 前进 step 个字符;调大 = 更慢
 const REVEAL_TICK_MS = 40
-import { PcmRecorder, MIN_USEFUL_BYTES, pcmToWav } from './audio'
+import { PcmRecorder, MIN_USEFUL_BYTES, pcmToWav, toPcmBytes } from './audio'
 import { transcribe, openSttStream, SttError, type SttStream } from './stt'
 import { streamRespond, listSessions, getSessionMessages, sessionChat, sessionChatStream, deleteSession, createSession, HermesError } from './hermes'
 import { appendTurn, loadHistory, type TurnEntry } from './history'
@@ -358,6 +358,8 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
               else if (ev.kind === 'tool_end') { dispatch({ kind: 'hermes_tool', label: null }) }
               else if (ev.kind === 'done') { dispatch({ kind: 'hermes_ok', text: ev.text || finalText }) }
             }
+            // 节流的尾巴必须补发,否则最后一段文本只在 hermes_ok 里一起出现
+            if (pending) { dispatch({ kind: 'hermes_delta', text: pending }); pending = '' }
           } else {
           let finalText = ''
           let deltaCount = 0
@@ -514,8 +516,10 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
   // 4. Subscribe to bridge events.
   const unsubHub = bridge.onEvenHubEvent((evt) => {
     if (evt.audioEvent?.audioPcm) {
-      const pcm = evt.audioEvent.audioPcm
-      if (pcm instanceof Uint8Array) {
+      // 宿主可能给 Uint8Array / number[] / base64(SDK 文档如此);只认 Uint8Array
+      // 会丢掉全部音频帧 → 录音没有内容 → 转写为空 → 直接回历史页
+      const pcm = toPcmBytes(evt.audioEvent.audioPcm)
+      if (pcm) {
         recorder.append(pcm)
         sttStream?.send(pcm)
       }
