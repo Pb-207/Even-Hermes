@@ -225,9 +225,9 @@ describe('streamRespond', () => {
 
     const promise = collect(streamRespond(CFG, 'c', 'hi'));
     const guarded = promise.catch((e) => e);
-    // Advance past the no-event watchdog threshold (60s). Walk in 5s steps so
-    // the 1s setInterval has chances to fire and re-evaluate.
-    for (let i = 0; i < 14; i++) {
+    // Advance past the no-event watchdog threshold (STREAM_NO_EVENT_TIMEOUT_MS = 180s).
+    // Walk in 5s steps so the 1s setInterval has chances to fire and re-evaluate.
+    for (let i = 0; i < 45; i++) {
       await vi.advanceTimersByTimeAsync(5_000);
     }
     const err = await guarded;

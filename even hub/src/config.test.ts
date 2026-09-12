@@ -26,11 +26,11 @@ describe('loadConfig', () => {
   it('returns env fallbacks (or empty) + defaults when storage is empty', async () => {
     const s = makeStorage()
     const c = await loadConfig(s)
-    // baseUrls may be empty or env-filled; models default or env-filled — both non-empty.
+    // 发布安全:构建期 env 注入已移除,所有字段都来自手机配置页 → 空存储时全为空串
     expect(typeof c.hermes.baseUrl).toBe('string')
     expect(c.hermes.apiKey).toBe('')
-    expect(c.hermes.model.length).toBeGreaterThan(0)
-    expect(c.stt.model.length).toBeGreaterThan(0)
+    expect(c.hermes.model).toBe('')
+    expect(c.stt.model).toBe('')
     expect(c.session.lastName).toBe('')
   })
 
