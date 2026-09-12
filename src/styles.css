@@ -1,0 +1,36 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; }
+body { margin: 0; background: #111; color: #eee; }
+main.setup { max-width: 32rem; margin: 0 auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
+main.setup h1 { font-size: 1.4rem; margin: 0.5rem 0; }
+main.setup h2 { font-size: 1.0rem; margin: 0 0 0.25rem; color: #9cf; }
+main.setup section { background: #1b1b1b; padding: 0.75rem; border-radius: 8px; display: flex; flex-direction: column; gap: 0.5rem; }
+main.setup label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+main.setup input, main.setup textarea { background: #0a0a0a; color: #eee; border: 1px solid #333; padding: 0.5rem; border-radius: 4px; font: inherit; }
+main.setup input:focus, main.setup textarea:focus, main.setup select:focus { background: #141414; color: #fff; outline: 2px solid #2a4; outline-offset: -1px; border-color: #2a4; }
+main.setup input::placeholder, main.setup textarea::placeholder { color: #666; opacity: 1; }
+/* 去掉浏览器/WebView 默认的聚焦白框(改用统一的蓝边高亮) */
+main.setup input, main.setup textarea, main.setup button, main.setup select { outline: none; -webkit-tap-highlight-color: transparent; }
+main.setup input:focus, main.setup textarea:focus, main.setup button:focus { outline: none; border-color: #2a4; box-shadow: 0 0 0 1px #2a4 inset; }
+main.setup button { background: #2a4; color: white; border: 0; padding: 0.6rem 0.9rem; border-radius: 4px; font: inherit; cursor: pointer; }
+main.setup button.primary { background: #28e; font-weight: 600; }
+main.setup pre { background: #000; padding: 0.5rem; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 8rem; overflow: auto; font-size: 0.75rem; }
+main.runtime-shim { padding: 1rem; color: #888; font-size: 0.9rem; }
+main.runtime-shim button { margin-top: 1rem; background: #444; color: #eee; border: 0; padding: 0.4rem 0.7rem; border-radius: 4px; cursor: pointer; }
+
+
+/* 手机端输入面板:去掉浏览器默认的聚焦白框,改用统一的深色边框 + 蓝色高亮 */
+#phone-ui textarea,
+#phone-ui input,
+#phone-ui button { outline: none; -webkit-tap-highlight-color: transparent; }
+#phone-ui textarea:focus,
+#phone-ui input:focus,
+#phone-ui button:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6 inset; }
+#phone-ui textarea, #phone-ui input { background: #1b1b1b; color: #eee; border: 1px solid #444; caret-color: #eee; }
+#phone-ui button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
+
+/* 手机输入框:长内容时的滚动条改深色(WebView 默认是白色,看起来像白框) */
+#phone-ui textarea { scrollbar-width: thin; scrollbar-color: #555 #1b1b1b; max-height: 40vh; }
+#phone-ui textarea::-webkit-scrollbar { width: 6px; height: 6px; }
+#phone-ui textarea::-webkit-scrollbar-track { background: #1b1b1b; }
+#phone-ui textarea::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+#phone-ui textarea::-webkit-scrollbar-corner { background: #1b1b1b; }

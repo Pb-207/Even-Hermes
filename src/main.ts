@@ -2,17 +2,7 @@ import { loadConfig, isConfigured } from './config'
 import { renderSetupView } from './setup-view'
 import { startRuntime } from './runtime/runtime'
 import { getBridgeWithDevFallback } from './dev-bridge'
-import { APP_DISPLAY_NAME, STARTUP_DWELL_MS, sleep } from './startup-page'
-import { createAnimationPage, playLogoIntro, typeName, waitForStartTap, showMessagePage } from './startup-animation'
-
-/** 提示页文案(启动动画结束后显示,随后进入会话界面) */
-const LINES_MESSAGE = [
-  'Hermes Lens 已启动,',
-  '请在手机上配置。',
-  '',
-  'Hermes Lens started,',
-  'please configure on the phone.',
-]
+import { createAnimationPage, playLogoIntro, typeName, waitForStartTap, prepareRuntimePage, showConfigureHint } from './startup-animation'
 
 async function boot(): Promise<void> {
   const bridge = await getBridgeWithDevFallback()
@@ -55,26 +45,25 @@ async function boot(): Promise<void> {
   const config = await loadConfig(bridge)
   const configured = isConfigured(config)
 
-  if (pageMode !== 'fail') {
+  if (pageMode === 'fail') {
+    // 连动画页都建不出来(极罕见):直接交还 runtime 布局,至少不黑屏
+    await prepareRuntimePage(bridge)
+  } else {
     // 1. LOGO(He -> 头像) 2. 打字机打出名字 3. —— Tap to start —— 闪烁,直到点击
     await playLogoIntro(bridge, pageMode)
     await typeName(bridge)
     await waitForStartTap(bridge)
-    // 点击后换成提示页(同一批 runtime 容器布局,LOGO 图像容器随重建一起消失)
-    await showMessagePage(bridge, LINES_MESSAGE)
-  } else {
-    // 建页失败(例如已有页面):退化为只显示提示页,至少不黑屏
-    await showMessagePage(bridge, LINES_MESSAGE)
   }
 
-  // 提示页在眼镜上停一会儿,让人看清
-  await sleep(STARTUP_DWELL_MS)
-
   if (!configured) {
+    // 未配置:停在这一页给提示,并打开手机端配置页
+    await showConfigureHint(bridge)
     await openSetup()
     return
   }
 
+  // 已配置:点击后立刻进入会话界面(不再有中间提示页 / 等待)
+  await prepareRuntimePage(bridge)
   mountShim()
   await startRuntime({ bridge, config, pageCreated: true })
 }
