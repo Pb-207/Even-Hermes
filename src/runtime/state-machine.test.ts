@@ -174,10 +174,17 @@ describe('reduce — home', () => {
 });
 
 describe('reduce — back to home (DOUBLE_CLICK from non-home)', () => {
-  it('from recording goes back to the session list (double-click = back)', () => {
+  it('from recording goes back to the SESSION HISTORY page (双击取消语音转写)', () => {
     const t = reduce(recording, { kind: 'gesture', gesture: 'DOUBLE_CLICK' });
-    expect(t.state.kind).toBe('home');
-    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'reload_history', 'render']);
+    expect(t.state.kind).toBe('idle');
+    if (t.state.kind === 'idle') {
+      expect(t.state.crumb).toBe((recording as unknown as { crumb?: string }).crumb);
+      expect(t.state.history).toBe((recording as unknown as { history?: unknown }).history);
+    }
+    const eff = t.effects.map((e) => e.kind);
+    expect(eff).toContain('mic_off');
+    expect(eff).toContain('abort_inflight');
+    expect(eff).toContain('render');
   });
   it('from thinking goes back to the session list (double-click = back)', () => {
     const t = reduce(thinking, { kind: 'gesture', gesture: 'DOUBLE_CLICK' });
