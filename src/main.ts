@@ -2,7 +2,7 @@ import { loadConfig, isConfigured } from './config'
 import { renderSetupView } from './setup-view'
 import { startRuntime } from './runtime/runtime'
 import { getBridgeWithDevFallback } from './dev-bridge'
-import { createStartupPage } from './startup-page'
+import { createStartupPage, sleep, STARTUP_DWELL_MS } from './startup-page'
 
 async function boot(): Promise<void> {
   const bridge = await getBridgeWithDevFallback()
@@ -10,6 +10,10 @@ async function boot(): Promise<void> {
   // 官方要求:app 启动后眼镜上必须「立刻」有渲染(哪怕一闪),不能黑屏。
   // 先创建启动页;runtime 稍后复用同一批容器直接渲染,不会重复建页。
   const pageCreated = await createStartupPage(bridge)
+
+  // 让启动页在眼镜上**看得见**:停留时间从建页开始计时,与下面的读配置并行。
+  // 未配置时会停在启动页(提示去手机端),配置好则由 runtime 接管同一批容器。
+  const dwell = pageCreated ? sleep(STARTUP_DWELL_MS) : Promise.resolve()
 
   // 运行时提示页:始终带「Configure / 配置」按钮(否则保存启动后按钮会消失)
   const mountShim = (): void => {
@@ -48,6 +52,7 @@ async function boot(): Promise<void> {
   }
 
   mountShim()
+  await dwell
   await startRuntime({ bridge, config, pageCreated })
 }
 
