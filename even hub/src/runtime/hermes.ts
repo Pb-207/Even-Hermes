@@ -50,13 +50,31 @@ export async function listSessions(cfg: HermesConfig): Promise<HermesSession[]> 
     }))
 }
 
-export type HermesMessage = { role: 'user' | 'assistant'; text: string };
+export type HermesMessage = { role: 'user' | 'assistant' | 'meta'; text: string };
 
 function messageText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map((p: any) => p?.text ?? p?.content ?? '').join(' ');
   if (content && typeof content === 'object') return String((content as any).text ?? '');
   return '';
+}
+
+/** 非 user/assistant 的消息(tool / system / thinking… )折叠成**一行**摘要,
+ *  与 Desktop 端把工具调用收起的做法一致;绝不当成用户输入打印。 */
+function collapseMeta(role: string, raw: string): string {
+  const label = '[' + (role || 'tool') + '] ';
+  const flat = raw.replace(/\s+/g, ' ').trim();
+  try {
+    const o = JSON.parse(raw) as Record<string, unknown>;
+    const bits: string[] = [];
+    for (const k of ['command', 'name', 'tool', 'status', 'error', 'output', 'detail', 'text', 'content']) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim()) bits.push(v.replace(/\s+/g, ' ').trim());
+      if (bits.join(' · ').length > 90) break;
+    }
+    if (bits.length) return label + bits.join(' · ');
+  } catch { /* 不是 JSON:按纯文本折叠 */ }
+  return label + flat;
 }
 
 export async function getSessionMessages(cfg: HermesConfig, sessionId: string): Promise<HermesMessage[]> {
@@ -67,10 +85,20 @@ export async function getSessionMessages(cfg: HermesConfig, sessionId: string): 
   if (!res.ok) throw new HermesError(`http ${res.status}`, res.status)
   const data = (await res.json()) as { data?: Array<Record<string, unknown>> }
   const arr = data.data ?? [] // 保持服务器返回顺序(旧→新)
-  return arr.map((m) => ({
-    role: m.role === 'assistant' ? 'assistant' : 'user',
-    text: messageText(m.content),
-  }))
+  const out: HermesMessage[] = []
+  for (const m of arr) {
+    const role = String(m.role ?? '')
+    const text = messageText(m.content)
+    if (role === 'user') { out.push({ role: 'user', text }); continue }
+    if (role === 'assistant') {
+      if (text.trim()) out.push({ role: 'assistant', text }) // 空回复(纯工具轮)直接跳过
+      continue
+    }
+    // tool / system / 其它 → 折叠成一行 meta(不当成用户输入)
+    if (!text.trim()) continue
+    out.push({ role: 'meta', text: collapseMeta(role, text) })
+  }
+  return out
 }
 
 export async function sessionChat(cfg: HermesConfig, sessionId: string, message: string): Promise<string> {

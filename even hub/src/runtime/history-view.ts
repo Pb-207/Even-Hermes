@@ -1,4 +1,5 @@
 import type { HermesMessage } from './hermes'
+import { stripMarkdown } from './markdown-strip'
 
 /**
  * 会话历史页的「整段显示 + 分页」逻辑(纯函数,render 与 state-machine 共用)。
@@ -67,6 +68,20 @@ function wrapWords(text: string, widthUnits: number): string[] {
   return out
 }
 
+/** 单行截断(按显示宽度;超宽截断加 …)。折叠行专用:永不折行。 */
+function clampUnits(text: string, width: number): string {
+  if (unitsOf(text) <= width) return text
+  let acc = 0
+  let cut = 0
+  for (const ch of text) {
+    const u = unitOf(ch)
+    if (acc + u > width - 1) break
+    acc += u
+    cut += ch.length
+  }
+  return text.slice(0, cut).trimEnd() + '…'
+}
+
 /**
  * 把整段会话展开成显示行(不缩略)。
  * 角色前缀只加在消息第一行,续行用等宽空格缩进;消息自身的换行保留。
@@ -75,6 +90,12 @@ export function historyRows(h: HermesMessage[] | undefined): Row[] {
   if (!h || !h.length) return []
   const rows: Row[] = []
   for (const m of h) {
+    // 工具调用/思考等 meta:像 Desktop 端一样折叠,只占一行(超宽截断,不折行)
+    if (m.role === 'meta') {
+      const folded = stripMarkdown(String(m.text ?? '')).replace(/\s+/g, ' ').trim()
+      if (folded) rows.push('· ' + clampUnits(folded, ROW_UNITS - 2))
+      continue
+    }
     const prefix = m.role === 'assistant' ? 'Hermes: ' : '> '
     const indent = ' '.repeat(prefix.length)
     const width = Math.max(16, ROW_UNITS - unitsOf(prefix))
@@ -87,7 +108,7 @@ export function historyRows(h: HermesMessage[] | undefined): Row[] {
         first = false
         continue
       }
-      const wrapped = wrapWords(text, width)
+      const wrapped = wrapWords(stripMarkdown(text), width)
       for (let i = 0; i < wrapped.length; i += 1) {
         const head = first && i === 0 ? prefix : indent
         rows.push(head + wrapped[i])
