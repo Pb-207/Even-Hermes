@@ -1,8 +1,8 @@
-# Hermes Lens
+# Hermes Connect
 
 A voice client for [Even Realities G2](https://www.evenrealities.com/) smart glasses that talks to your **self-hosted [Hermes](https://github.com/) agent gateway**. Tap a temple, speak, and the agent's reply streams onto the lenses — with live tool-progress and scrollable long answers. No cloud account, no middleman: the phone-side WebView talks directly to endpoints you control.
 
-> Even Hub package id: `com.pb208.evenhermes`
+> Even Hub package id: `com.even.hermesconnect`
 
 ## How it works
 
@@ -14,7 +14,7 @@ One Vite + TypeScript bundle drives two surfaces:
 ```
  ┌────────┐   tap + speak    ┌─────────────┐  /v1/audio/transcriptions  ┌──────────────┐
  │  G2    │ ───────────────► │ Hermes      │ ─────────────────────────► │ STT host     │
- │ glasses│                  │ Lens        │                             │ (Whisper-ish)│
+ │ glasses│                  │ Connect     │                             │ (Whisper-ish)│
  │        │ ◄─────────────── │ (this app)  │  /v1/responses (SSE)        ┌──────────────┐
  └────────┘  streamed reply  └─────────────┘ ──────────────────────────► │ Hermes agent │
                                                                           └──────────────┘
@@ -56,10 +56,10 @@ In dev mode a mock bridge lets you exercise the setup form in a plain browser. A
 
 ```bash
 npm run build                                          # → dist/
-npx evenhub pack app.json dist -o hermes-lens.ehpk  # → installable package
+npx evenhub pack app.json dist -o hermes-connect.ehpk  # → installable package
 ```
 
-Then sideload `hermes-lens.ehpk` via the Even Hub app (or serve it and scan a QR with `npx evenhub qr`).
+Then sideload `hermes-connect.ehpk` via the Even Hub app (or serve it and scan a QR with `npx evenhub qr`).
 
 > **Network whitelist:** `app.json` only permits network calls to hosts listed in the `network` permission. The committed values are placeholders (`your-hermes-host`, `your-stt-host`) — replace them with your actual Hermes and STT endpoints before packing, or the calls will be blocked.
 
@@ -69,4 +69,4 @@ Everything is configured at runtime from the phone setup screen and persisted in
 
 ## License
 
-[MIT](LICENSE) © 2026 Pb-207
+[MIT](LICENSE) © 2026 Adrian Kay

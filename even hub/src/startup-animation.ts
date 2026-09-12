@@ -62,7 +62,7 @@ const HINT_Y = 214 + CONTENT_DY
 const LINE_H = 40
 
 const TYPE_START_DELAY_MS = 500
-const TYPE_STEP_MS = 45
+const TYPE_STEP_MS = 25
 const TYPE_HOLD_MS = 350
 const BLINK_MS = 650
 
@@ -211,13 +211,14 @@ export async function typeName(bridge: EvenAppBridge): Promise<void> {
       containerName: bold ? 'name-bold' : 'name',
       content,
     }).catch(() => undefined) as Promise<unknown>
-  await setText(EMPTY, false)
+  await setText(EMPTY, false) // 首帧 await,确保清屏真的上屏
   void setText(EMPTY, true)
   for (let i = 1; i <= NAME_TEXT.length; i += 1) {
     const slice = NAME_TEXT.slice(0, i)
-    await setText(slice, false)
-    // 粗体副本每 2 个字符同步一次:真机通道比模拟器慢一个量级,每字两条 IPC 会把打字卡慢一倍
-    if (i % 2 === 0) void setText(slice, true)
+    // 不 await:文本是全量覆盖 + 通道有序,万一丢一帧会被下一帧自动纠正。
+    // 真机通道比模拟器慢一个量级,等回执会把打字卡慢一倍,这是最关键的一处提速。
+    void setText(slice, false)
+    if (i % 4 === 0) void setText(slice, true) // 粗体副本每 4 字同步一次
     await sleep(TYPE_STEP_MS)
   }
   void setText(NAME_TEXT, true) // 收尾对齐粗体副本
@@ -273,14 +274,25 @@ export function waitForStartTap(bridge: EvenAppBridge): Promise<void> {
  * 换成「提示配置 / 已启动」页:用 runtime 期望的 1/2/3 容器几何重建,
  * 这样连同 LOGO 图像容器一起被替换掉,runtime 随后只需 textContainerUpgrade。
  */
-export async function showMessagePage(bridge: EvenAppBridge, lines: string[]): Promise<void> {
+/** 把页面交还给 runtime:用 runtime 期望的 1/2/3 容器重建(内容清空)。
+ *  不再显示中间的「已启动」提示页 —— 点击 Tap to start 后直接进入会话界面。 */
+export async function prepareRuntimePage(bridge: EvenAppBridge): Promise<void> {
   try {
-    const [status, main, footer] = makeLayoutContainers(APP_DISPLAY_NAME, lines.join('\n'), '')
+    const [status, main, footer] = makeLayoutContainers(APP_DISPLAY_NAME, EMPTY, '')
     await bridge.rebuildPageContainer(new RebuildPageContainer({
       containerTotalNum: 3,
       textObject: [status, main, footer],
     }))
   } catch (err) {
-    console.error('[startup] message page failed:', err)
+    console.error('[startup] prepareRuntimePage failed:', err)
   }
+}
+
+/** 未配置时:直接在动画页上给出「去手机端配置」提示(不再有单独的提示页)。 */
+export async function showConfigureHint(bridge: EvenAppBridge): Promise<void> {
+  try {
+    await bridge.textContainerUpgrade({ containerID: C_NAME, containerName: 'name', content: 'Hermes Lens 已启动,请在手机上配置。' })
+    void bridge.textContainerUpgrade({ containerID: C_NAME_BOLD, containerName: 'name-bold', content: EMPTY }).catch(() => {})
+    await bridge.textContainerUpgrade({ containerID: C_HINT, containerName: 'hint', content: 'Configure it on the phone.' })
+  } catch { /* ignore */ }
 }

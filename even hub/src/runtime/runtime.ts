@@ -59,6 +59,8 @@ function isAnimatedState(state: State): boolean {
 type RuntimeOptions = {
   bridge: EvenAppBridge
   config: AppConfig
+  /** true = 启动页已由 main.ts 创建(复用其容器,不再重复建页) */
+  pageCreated?: boolean
 }
 
 // The host (real glasses + simulator) may deliver `eventType` as a number,
@@ -76,7 +78,7 @@ function gestureFromEventType(raw: unknown): Gesture | null {
 }
 
 export async function startRuntime(opts: RuntimeOptions): Promise<void> {
-  const { bridge, config } = opts
+  const { bridge, config, pageCreated = false } = opts
 
   // 1. Create the three layout zones: status (28px) / main (232px) / footer (28px).
   //    Sum = 288px = G2 framebuffer height. Container 2 (main) keeps event capture.
@@ -178,13 +180,18 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
     if (btn) btn.disabled = !active;
   }
   ensurePhoneUi();
-  const result = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
-    containerTotalNum: 3,
-    textObject: [status, main, footer],
-  }))
-  if (result !== 0) {
-    console.error('[runtime] createStartUpPageContainer failed:', result)
-    return
+  if (pageCreated) {
+    // 启动页已由 main.ts 创建(同一批容器 ID/几何),这里直接渲染覆盖即可。
+    console.log('[runtime] reusing page created at startup')
+  } else {
+    const result = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
+      containerTotalNum: 3,
+      textObject: [status, main, footer],
+    }))
+    if (result !== 0) {
+      console.error('[runtime] createStartUpPageContainer failed:', result)
+      return
+    }
   }
 
   // 2. Set up state, queues, counters. Initial state is home; the
@@ -535,6 +542,12 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
 
   // 5. First paint, then asynchronously populate the home menu with recent turns.
   await render.render(state)
+
+  // DEV-ONLY:演示模式下自动发一条消息,便于在模拟器里抓「回复页」原始截图
+  if (import.meta.env.DEV) {
+    const demo = await import('../dev-demo')
+    if (demo.isDemoMode()) demo.scheduleDemoSend((text) => { void dispatch({ kind: 'phone_send', text }) })
+  }
   buildHomeItems(bridge)
     .then((items) => dispatch({ kind: 'home_loaded', items }))
     .catch((err) => console.warn('[runtime] initial home load failed:', err))

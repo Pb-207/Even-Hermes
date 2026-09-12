@@ -25,3 +25,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# local backups (tarballs / old ehpk / patched gateway file)
+backup/

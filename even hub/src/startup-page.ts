@@ -14,12 +14,6 @@ import {
 
 export const APP_DISPLAY_NAME = 'Hermes Lens'
 
-/**
- * 启动页在眼镜上**可见停留**的时长。官方要求启动后必须有 OS 渲染,但渲染一闪而过
- * 等于没有:这里保留一段足够看清的时间,期间 runtime 并行读取配置,不额外拖慢启动。
- */
-export const STARTUP_DWELL_MS = 2500
-
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

@@ -7,9 +7,9 @@
 // In production builds (`import.meta.env.DEV === false`) this module is
 // imported but never used — `main.ts` skips the race entirely.
 
-import { waitForEvenAppBridge, type EvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { waitForEvenAppBridge, EvenAppBridge } from '@evenrealities/even_hub_sdk'
 
-const DEV_MOCK_TIMEOUT_MS = 3000
+const DEV_MOCK_TIMEOUT_MS = 12000
 const STORAGE_PREFIX = 'hermes-even.mock.'
 
 function makeMockBridge(): EvenAppBridge {
@@ -73,6 +73,16 @@ function makeMockBridge(): EvenAppBridge {
 export async function getBridgeWithDevFallback(): Promise<EvenAppBridge> {
   if (!import.meta.env.DEV) {
     return waitForEvenAppBridge()
+  }
+  // 模拟器等宿主里单例可能已经就绪:优先直接取,避免 race 超时后误用 mock bridge
+  try {
+    const inst = EvenAppBridge.getInstance()
+    if (inst && typeof inst.createStartUpPageContainer === 'function') {
+      console.log('[dev] using the initialized EvenAppBridge singleton')
+      return inst
+    }
+  } catch (err) {
+    console.log('[dev] EvenAppBridge.getInstance() unavailable:', String(err))
   }
   return Promise.race([
     waitForEvenAppBridge(),
