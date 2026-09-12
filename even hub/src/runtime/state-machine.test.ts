@@ -161,15 +161,15 @@ describe('reduce — home', () => {
 });
 
 describe('reduce — back to home (DOUBLE_CLICK from non-home)', () => {
-  it('from recording cancels back to the session history', () => {
+  it('from recording goes back to the session list (double-click = back)', () => {
     const t = reduce(recording, { kind: 'gesture', gesture: 'DOUBLE_CLICK' });
-    expect(t.state.kind).toBe('idle');
-    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'render']);
+    expect(t.state.kind).toBe('home');
+    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'reload_history', 'render']);
   });
-  it('from thinking cancels back to the session history', () => {
+  it('from thinking goes back to the session list (double-click = back)', () => {
     const t = reduce(thinking, { kind: 'gesture', gesture: 'DOUBLE_CLICK' });
-    expect(t.state.kind).toBe('idle');
-    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'render']);
+    expect(t.state.kind).toBe('home');
+    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'reload_history', 'render']);
   });
 });
 
