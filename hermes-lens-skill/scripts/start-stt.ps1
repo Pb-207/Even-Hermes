@@ -87,7 +87,7 @@ if (-not $ApiKey -and -not $loopback -and -not $AllowNoKey) {
   Write-Host ""
   Write-Host "！未设置 -ApiKey 且监听地址不是 127.0.0.1 —— 服务会拒绝启动。" -ForegroundColor Red
   Write-Host "  STT_API_KEY is empty while binding to $Bind - the server will refuse to start." -ForegroundColor Red
-  Write-Host "  加 -ApiKey \"<长随机 key>\",或 -Bind 127.0.0.1,或显式 -AllowNoKey。" -ForegroundColor Red
+  Write-Host '  加 -ApiKey "<长随机 key>",或 -Bind 127.0.0.1,或显式 -AllowNoKey。' -ForegroundColor Red
   Write-Host ""
 }
 $env:STT_PORT = "$Port"

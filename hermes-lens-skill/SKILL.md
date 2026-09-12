@@ -1,7 +1,7 @@
 ---
 name: hermes-lens
 description: "Deploy the Hermes-side services (gateway, CORS fix, tunnel, local STT) that the Hermes Lens G2 glasses plugin needs."
-version: 1.0.0
+version: 1.1.0
 author:
   name: "Pb-207"
   github: "Pb-207"
@@ -14,7 +14,7 @@ metadata:
   hermes:
     related_skills: [hermes-remote-api-exposure]
     icon: 🕶️
-    readme_url: "https://github.com/Pb-207/hermes-lens"
+    readme_url: "https://github.com/Pb-207/Hermes-Lens"
 ---
 
 # Hermes Lens — 安装与配置指南 / Setup Guide
@@ -161,6 +161,8 @@ headers = {
 - 启动:`.\scripts\start-stt.ps1 -Model medium -ApiKey <自定一个 key>`(默认监听 `0.0.0.0:8765`);
 - 首次运行会下载模型(脚本默认用 `hf-mirror.com` 加速,可 `-NoMirror` 关掉);
 - 手机端填:`Base URL = http://<本机IP>:8765`、`API key = 上面设置的`、`Model = medium`;
+- **边说边出字(流式)**:自带的服务端同时提供 **WebSocket 流式**(每约 1 秒回一条 partial)。眼镜端在录音过程中会逐句显示识别结果;若服务端不支持流式(例如换成了只用 REST 的 OpenAI 兼容端点),插件会**自动回落**成整段转写 —— 功能正常,但说话时看不到实时文字;
+- **模型缓存位置**:默认在 `~/stt-models`。模型已在别处(例如 `D:\Models\STT`)就用 `-ModelDir "D:\Models\STT"` 指过去,免得重复下载几个 G;
 - **关键坑**:必须把 `nvidia/*/bin` 加进 `PATH`(脚本已自动处理),否则 ctranslate2 找不到 `cublas64_12.dll`、`cudnn*.dll`、`cudart64_12.dll`,第一次转写就 500;缺 `cudart64_12.dll` 时 `uv pip install nvidia-cuda-runtime-cu12`;
 - 没 GPU 也行:`. scripts/start-stt.ps1 -Device cpu -Compute int8`(慢一些)。
 - **安全(必读)**:STT 一旦**能被本机以外访问**(隧道、或 `-Bind 0.0.0.0`),就**必须**设置 `-ApiKey`;否则**任何人**都能免费用你的 GPU 转写、并看到转写内容。`start-stt.ps1` 默认绑定 `0.0.0.0`,因此在**没设 key 时服务会拒绝启动**。只在本机用 → `-Bind 127.0.0.1`;确实要无鉴权 → 显式加 `-AllowNoKey`(危险)。
@@ -188,12 +190,13 @@ headers = {
 **使用**:
 
 - 眼镜端:单击镜腿 → 进入「桌面端」→ 上下滑动选会话 → 单击进入(可「+ 新建会话」);
-- 说话:单击开始、再单击结束;识别到的文字会直接发给 Hermes;
-- 回复在此页**逐字流式**显示;双击镜腿 → 回到历史对话;
+- 说话:单击开始、再单击结束;说话过程中**眼镜上会逐句显示识别结果**;识别完的文字直接发给 Hermes;
+- 回复在**同一个历史页**里逐字流式出现(超过一屏自动翻页,滑动镜腿可翻页);
+- 双击镜腿:录音/转写当中 = **取消并回到当前会话历史页**;回复正在流式时 = 退回会话列表;在会话页 = 回会话列表;
 - **菜单**:在会话列表页「**点击后点按**」镜腿呼出系统菜单 → 里面有「**删除会话**」→ 再点一次确认;
 - 手机端:输入框可打字(回车换行、`Ctrl/Cmd+Enter` 或点「发送」),「**+ 图片**」可附图片一起发(需要模型有视觉能力)。
 
-**验收**:①眼镜端能列出桌面会话;②说话后眼镜端逐字出回复且与桌面会话历史互通;③手机端打字/发图同样能触发回复;④配置页中英切换、菜单语言跟随。
+**验收**:①眼镜端能列出桌面会话;②说话时眼镜上逐句出现识别结果,说完后回复逐字流出,且与桌面会话历史互通;③手机端打字/发图同样能触发回复;④配置页中英切换、菜单语言跟随。
 
 ---
 
@@ -286,6 +289,12 @@ The same approach works if you need remote access to the STT service from step 5
 - Start: `.\scripts\start-stt.ps1 -Model medium -ApiKey <pick-a-key>` (listens on `0.0.0.0:8765`);
 - The model downloads on first run (the script uses `hf-mirror.com` for speed; `-NoMirror` to skip);
 - Phone settings: `Base URL = http://<host-ip>:8765`, `API key = the one you set`, `Model = medium`;
+- **Live partials**: the bundled server also exposes a **WebSocket streaming** endpoint (a partial every ~1 s),
+  so the glasses show recognised text while you are still speaking. With a streaming-incapable endpoint
+  (e.g. a REST-only OpenAI-compatible one) the plugin **falls back** to one-shot transcription — it still
+  works, you just lose the live text;
+- **Model cache**: defaults to `~/stt-models`; if the model already lives elsewhere (say `D:\Models\STT`),
+  pass `-ModelDir "D:\Models\STT"` instead of downloading several GB again;
 - **Critical pitfall**: the `nvidia/*/bin` directories must be on `PATH` (the script does this) or
   ctranslate2 cannot load `cublas64_12.dll` / `cudnn*.dll` / `cudart64_12.dll` and the first
   transcription fails with a 500; if `cudart64_12.dll` is missing: `uv pip install nvidia-cuda-runtime-cu12`;
@@ -315,10 +324,14 @@ Tap **"Save & launch"** after changes; the settings page ends with a built-in us
 **Use it**:
 
 - Glasses: press the temple → open "Desktop" → swipe to pick a session → press to enter (or "+ new session");
-- Talk: press to start, press again to stop; the transcript is sent to Hermes;
-- The reply **streams word by word** on that page; double-press the temple to go back to the history;
+- Talk: press to start, press again to stop; **the glasses show the recognised text as you speak** and the
+  finished transcript is sent to Hermes;
+- The reply **streams word by word in that same history page** (it pages automatically past one screen; swipe
+  the temple to turn pages);
+- Double-press the temple: while recording/transcribing = **cancel and return to the conversation history**;
+  while a reply is streaming = back to the session list; on the conversation page = back to the session list;
 - **Menu**: on the session list, **tap then press-and-hold** the temple for the system menu → it contains
   **"Delete session"** → tap once more to confirm;
 - Phone: type in the box (Enter = newline, `Ctrl/Cmd+Enter` or the Send button to send), or **"+ image"** to attach images (the model needs vision).
 
-**Acceptance**: ① sessions list on the glasses; ② talking streams a reply and shares history with the desktop session; ③ phone typing/image also triggers a reply; ④ language switch works and the menu follows it.
+**Acceptance**: ① sessions list on the glasses; ② recognised text appears line by line while you speak and the reply streams afterwards, sharing history with the desktop session; ③ phone typing/image also triggers a reply; ④ language switch works and the menu follows it.

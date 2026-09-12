@@ -93,6 +93,9 @@ DEVICE = os.environ.get("STT_DEVICE", "cuda")
 COMPUTE = os.environ.get("STT_COMPUTE", "float16" if DEVICE == "cuda" else "int8")
 DEFAULT_LANGUAGE = os.environ.get("STT_LANGUAGE", "zh") or None
 
+# whisper 对中文常输出繁体;用简体提示词引导(仅中文时使用)
+_INITIAL_PROMPT = "以下是普通话的句子。"
+
 app = FastAPI(title="hermes-lens-local-stt")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -127,7 +130,8 @@ def _transcribe_pcm(pcm: bytes, language: str | None = None) -> str:
             f.write(buf.getvalue())
             path = f.name
         lang = None if (language in ("", "auto", None)) else language
-        segs, _info = get_model().transcribe(path, beam_size=1, language=lang)
+        prompt = _INITIAL_PROMPT if (not lang or str(lang).lower().startswith("zh")) else None
+        segs, _info = get_model().transcribe(path, beam_size=1, language=lang, initial_prompt=prompt)
         return "".join(s.text for s in segs).strip()
     finally:
         if path:
@@ -175,7 +179,7 @@ async def transcribe(file: UploadFile = File(...), authorization: str = Header(N
         f.write(data)
         path = f.name
     try:
-        segs, info = get_model().transcribe(path, beam_size=1)
+        segs, info = get_model().transcribe(path, beam_size=1, initial_prompt=_INITIAL_PROMPT)
         text = "".join(s.text for s in segs).strip()
         print(f"[REST-STT] lang={info.language} text={text!r}", flush=True)
         return {"text": text}
@@ -196,14 +200,20 @@ def _dg_result(text: str, is_final: bool, utterance_index: int = -1) -> str:
 
 
 @app.websocket("/{path:path}")
-async def ws_stt(websocket: WebSocket, path: str):
-    """Config JSON first, then 16 kHz PCM frames; partials every ~1 s, final on silence."""
+async def ws_stt(websocket: WebSocket, path: str, api_key: str | None = None):
+    """Config JSON first, then 16 kHz PCM frames; partials every ~1 s, final on silence.
+
+    鉴权与 REST 一致:配置了 STT_API_KEY 时必须提供,否则拒绝(关闭码 1008)。
+    浏览器 WebSocket 不能自定义请求头,所以 key 从 `?api_key=` 或首条 config 消息里的
+    `api_key` 字段取,二者任一匹配即可。
+    """
     await websocket.accept()
     audio = bytearray()
     language = DEFAULT_LANGUAGE or "zh"
     chunks = 0
     last_partial = ""
-    print(f"[WS] connected path=/{path}", flush=True)
+    last_partial_at = time.monotonic()
+    print(f"[WS] connected path=/{path} auth={'on' if API_KEY else 'off'}", flush=True)
 
     async def send_transcript(final: bool) -> None:
         nonlocal last_partial
@@ -218,17 +228,39 @@ async def ws_stt(websocket: WebSocket, path: str):
             except Exception as e:  # noqa: BLE001
                 print("[STT] send err", e, flush=True)
 
+    # 1) 鉴权:key 可从查询串或首条 config 消息来
+    authed = not API_KEY or (api_key or "") == API_KEY
+    if not authed:
+        try:
+            first = await asyncio.wait_for(websocket.receive(), timeout=5)
+            raw = first.get("text") or ""
+            cfg = json.loads(raw).get("config", {}) if raw else {}
+            if str(cfg.get("api_key") or "") == API_KEY:
+                authed = True
+                raw_lang = str(cfg.get("language") or DEFAULT_LANGUAGE or "zh")
+                language = "zh" if raw_lang.lower().startswith("zh") else raw_lang
+        except Exception:  # noqa: BLE001
+            authed = False
+    if not authed:
+        print(f"[WS] rejected path=/{path} (missing/invalid key)", flush=True)
+        try:
+            await websocket.send_text(json.dumps({"type": "Error", "message": "unauthorized"}))
+            await websocket.close(code=1008)  # policy violation
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
     try:
         while True:
             try:
                 m = await asyncio.wait_for(websocket.receive(), timeout=0.7)
             except asyncio.TimeoutError:
-                print("[WS] silence -> final", flush=True)
+                print(f"[WS] silence -> final (frames={chunks} bytes={len(audio)})", flush=True)
                 await send_transcript(True)
                 break
             t = m.get("type", "")
             if t == "websocket.disconnect":
-                print("[WS] disconnect -> final", flush=True)
+                print(f"[WS] disconnect -> final (frames={chunks} bytes={len(audio)})", flush=True)
                 await send_transcript(True)
                 break
             data = m.get("bytes") or m.get("text") or b""
@@ -247,7 +279,9 @@ async def ws_stt(websocket: WebSocket, path: str):
             else:
                 audio += data
                 chunks += 1
-                if chunks % 20 == 0:            # ~1 s at 50 ms frames
+                # partial 按时间节流(~1 s):音频帧大小随宿主不同(实测 100 ms/帧),按帧数会几乎不触发
+                if time.monotonic() - last_partial_at >= 1.0:
+                    last_partial_at = time.monotonic()
                     await send_transcript(False)
     except Exception as e:  # noqa: BLE001
         print("[WS] err", e, flush=True)

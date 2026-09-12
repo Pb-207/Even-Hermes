@@ -62,3 +62,31 @@ notification settings mirroring it to the glasses).
 A newer SDK raises the **minimum Even App version** (e.g. SDK 0.0.15 → **≥2.2.10**). An older Even App may
 fail to install the plugin or show a black screen. Update Even App; if it still fails, check the build's
 minimum version requirement.
+
+---
+
+## 6. 说话时眼镜上不出现实时文字(但转写本身是对的)
+
+**原因**:插件优先走 **WebSocket 流式**;"边说边出字"依赖服务端支持它。若 8765 上跑的不是自带的那份
+`scripts/server.py`(例如早期副本、或换成只用 REST 的 OpenAI 兼容端点),握手失败后插件会**静默回落**成
+整段转写 —— 功能还在,只是说完才出文字,容易误判成"没在转写"。
+**处理**:用自带的 `scripts/server.py` 启动(见步骤 5);确认服务端版本支持流式(REST 之外的 `/` WebSocket 端点)。
+**另**:流式只在**录音过程中**显示;停止录音后,识别结果会作为这一轮的输入发出去。
+
+**Cause**: the plugin prefers **WebSocket streaming**, and the live text depends on the server supporting it.
+If port 8765 is served by something else (an early copy, or a REST-only OpenAI-compatible endpoint), the
+handshake fails and the plugin **silently falls back** to one-shot transcription — it still works, the text
+just appears only after you stop, which easily reads as "nothing is being transcribed".
+**Fix**: start the bundled `scripts/server.py` (step 5) and make sure the server exposes the streaming endpoint
+alongside the REST one.
+
+---
+
+## 7. 模型又下载了一遍(几个 GB)
+
+`scripts/start-stt.ps1` 默认把模型缓存放在 `~/stt-models`。如果模型已经在别处(比如 `D:\Models\STT`),
+不指定就会重新下载。
+**处理**:加 `-ModelDir "D:\Models\STT"`(该目录就是 `HF_HOME`,里面应有 `hub/` 子目录)。
+
+**Cause**: `start-stt.ps1` defaults the cache to `~/stt-models`; an existing model elsewhere is ignored.
+**Fix**: pass `-ModelDir "D:\Models\STT"` (that path is used as `HF_HOME` and should contain `hub/`).
