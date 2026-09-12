@@ -117,20 +117,24 @@ def remote_tree(branch: str) -> dict:
         return {}
 
 
-def push(branch, files, msg):
+def push(branch, files, msg, remove=()):
     known = remote_tree(branch)
     changed = [(rel, fp) for rel, fp in files if known.get(rel) != git_blob_sha(fp)]
+    removals = [p for p in remove if p in known]
     skipped = len(files) - len(changed)
-    if not changed:
+    if not changed and not removals:
         print(f"  {branch} 无变化,跳过推送(共 {len(files)} 个文件)")
         return None
-    print(f"  {branch}: {len(changed)} 个文件有变化(其余 {skipped} 个未改动,跳过上传)")
+    print(f"  {branch}: {len(changed)} 个文件有变化(其余 {skipped} 个未改动,跳过上传)"
+          + (f",删除 {len(removals)} 个" if removals else ""))
     ents = []
     for rel, fp in changed:
         blob = base64.b64encode(file_bytes(fp)).decode()
         b = api(f"{API}/repos/{REPO}/git/blobs",
                 json.dumps({"content": blob, "encoding": "base64"}).encode(), "POST")
         ents.append({"path": rel, "mode": "100644", "type": "blob", "sha": b["sha"]})
+    for rel in removals:  # sha=null 即从树里删掉该路径
+        ents.append({"path": rel, "mode": "100644", "type": "blob", "sha": None})
     base = api(f"{API}/repos/{REPO}/git/ref/heads/{branch}")["object"]["sha"]
     bt = api(f"{API}/repos/{REPO}/git/commits/{base}")["tree"]["sha"]
     tree = api(f"{API}/repos/{REPO}/git/trees", json.dumps({"base_tree": bt, "tree": ents}).encode(), "POST")
