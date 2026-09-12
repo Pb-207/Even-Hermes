@@ -1,0 +1,254 @@
+import {
+  EvenAppBridge,
+  TextContainerProperty,
+  ImageContainerProperty,
+  CreateStartUpPageContainer,
+  RebuildPageContainer,
+  OsEventTypeList,
+  ImageRawDataUpdateResult,
+} from '@evenrealities/even_hub_sdk'
+import { LOGO_SIZE, LOGO_MARK_PNG_BASE64, LOGO_PORTRAIT_PNG_BASE64 } from './logo-data'
+import { APP_DISPLAY_NAME, makeLayoutContainers, sleep } from './startup-page'
+
+/**
+ * 启动动画(官方要求「启动后立刻有 OS 渲染」+ 开场设计):
+ *   1. 画面中央显示 Hermes Lens 的 LOGO(图像容器,灰度数据)
+ *   2. 下方用打字机效果逐字打出「Hermes Lens」
+ *   3. 再下方「—— Tap to start ——」闪烁,直到用户在眼镜上点击
+ *   4. 点击后换成「已启动,请在手机上配置」的提示页(runtime 的容器布局),随后交给 runtime
+ *
+ * 动画页的容器 ID 与 runtime 不同(以免冲突);结束时用 rebuildPageContainer
+ * 换成 runtime 期望的 1/2/3 布局,因此 runtime 走的是「复用已有页面」路径。
+ */
+
+const CANVAS_W = 576
+const CANVAS_H = 288
+
+/** 动画页容器 ID(与 runtime 的 1/2/3 不冲突) */
+const C_NAME = 10
+const C_HINT = 11
+const C_LOGO = 12
+/** 「粗体」副本容器:与名字容器重叠、右移几像素,形成 faux bold */
+const C_NAME_BOLD = 13
+
+/** 打字机要打出的名字(固定字符串,便于校准居中偏移) */
+export const NAME_TEXT = 'Hermes Lens'
+/** 闪烁提示语 */
+export const HINT_TEXT = '—— Tap to start ——'
+
+/**
+ * 固件字体非等宽、SDK 也没有对齐字段,所以水平居中只能自己算:
+ * 在模拟器里实测字符串的点亮像素宽度后,把 容器左边界 = (576 - 宽度)/2 填在这里。
+ * 名字的粗体副本向右/下各偏 1px(偏移大了会出现重影)。
+ */
+export const BOLD_DX = 1
+export const BOLD_DY = 1
+export const NAME_X = 233
+export const HINT_X = 206
+
+const CONTENT_DY = 0 // 整屏内容微调:负值整体上移
+/** LOGO 区的中心线(两个素材尺寸不同也共用同一条中心线,切换时不会跳) */
+const LOGO_CY = 100 + CONTENT_DY
+const LOGO_X = Math.round((CANVAS_W - LOGO_SIZE) / 2)
+const LOGO_Y = Math.round(LOGO_CY - LOGO_SIZE / 2)
+const NAME_Y = 178 + CONTENT_DY
+const HINT_Y = 214 + CONTENT_DY
+const LINE_H = 40
+
+const TYPE_START_DELAY_MS = 500
+const TYPE_STEP_MS = 75
+const TYPE_HOLD_MS = 350
+const BLINK_MS = 650
+
+// 开场两帧 LOGO 各自的停留时长
+const LOGO_MARK_MS = 900
+const LOGO_PORTRAIT_MS = 1100
+
+function nameBox(content: string, dx = 0, dy = 0, bold = false): TextContainerProperty {
+  const x = NAME_X + dx
+  return new TextContainerProperty({
+    xPosition: x,
+    yPosition: NAME_Y + dy,
+    width: CANVAS_W - x,
+    height: LINE_H,
+    borderWidth: 0,
+    paddingLength: 0,
+    containerID: bold ? C_NAME_BOLD : C_NAME,
+    containerName: bold ? 'name-bold' : 'name',
+    content,
+    // 只有主容器捕获事件;粗体副本只负责显示
+    isEventCapture: bold ? 0 : 1,
+  })
+}
+
+function hintBox(content: string): TextContainerProperty {
+  return new TextContainerProperty({
+    xPosition: HINT_X,
+    yPosition: HINT_Y,
+    width: CANVAS_W - HINT_X,
+    height: LINE_H,
+    borderWidth: 0,
+    paddingLength: 0,
+    containerID: C_HINT,
+    containerName: 'hint',
+    content,
+    isEventCapture: 0,
+  })
+}
+
+/** 组装动画页的容器(建页与重建共用)。 */
+function animationPageParts(): { textObject: TextContainerProperty[]; imageObject: ImageContainerProperty[] } {
+  return {
+    textObject: [nameBox(''), nameBox('', BOLD_DX, BOLD_DY, true), hintBox('')],
+    imageObject: [new ImageContainerProperty({
+      xPosition: LOGO_X,
+      yPosition: LOGO_Y,
+      width: LOGO_SIZE,
+      height: LOGO_SIZE,
+      containerID: C_LOGO,
+      containerName: 'logo',
+    })],
+  }
+}
+
+/** 创建启动动画页:LOGO 容器 + 名字行(含粗体副本)+ 提示行。
+ *  首帧就有名字,保证启动即有渲染。若页面已存在(例如 WebView 热重载后),
+ *  退化为用 rebuildPageContainer 换成动画页,保证动画照常播放。 */
+export async function createAnimationPage(bridge: EvenAppBridge): Promise<boolean> {
+  const { textObject, imageObject } = animationPageParts()
+  try {
+    const result = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
+      containerTotalNum: 4,
+      textObject,
+      imageObject,
+    }))
+    if (result === 0) return true
+    console.warn('[startup] animation page rejected:', result, '-> try rebuild')
+  } catch (err) {
+    console.warn('[startup] animation page failed:', err, '-> try rebuild')
+  }
+  try {
+    await bridge.rebuildPageContainer(new RebuildPageContainer({
+      containerTotalNum: 4,
+      textObject,
+      imageObject,
+    }))
+    return true
+  } catch (err) {
+    console.error('[startup] animation rebuild failed:', err)
+    return false
+  }
+}
+
+/** 把 LOGO 推给图像容器(必须在建页之后调用)。
+ *  实测:宿主期望的是**真实图片文件字节**(PNG,base64 传入);裸灰度字节一律 sendFailed。 */
+export async function pushLogo(bridge: EvenAppBridge, which: 'mark' | 'portrait'): Promise<boolean> {
+  try {
+    const res = await bridge.updateImageRawData({
+      containerID: C_LOGO,
+      containerName: 'logo',
+      imageData: which === 'mark' ? LOGO_MARK_PNG_BASE64 : LOGO_PORTRAIT_PNG_BASE64,
+    })
+    if (res !== ImageRawDataUpdateResult.success) {
+      console.warn('[startup] logo push failed:', which, res)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.warn('[startup] logo push threw:', which, err)
+    return false
+  }
+}
+
+/** 开场:先出现 He 图标,再换成 Hermes 的黑白头像。 */
+export async function playLogoIntro(bridge: EvenAppBridge): Promise<void> {
+  const first = await pushLogo(bridge, 'mark')
+  if (!first) {
+    // LOGO 推不上去时不能留白屏:直接先把名字显示出来
+    void bridge.textContainerUpgrade({ containerID: C_NAME, containerName: 'name', content: NAME_TEXT }).catch(() => {})
+  }
+  await sleep(LOGO_MARK_MS)
+  await pushLogo(bridge, 'portrait')
+  await sleep(LOGO_PORTRAIT_MS)
+}
+
+/** 「Hermes Lens」逐字打出(粗体副本同步,但不等它,免得拖慢主行)。 */
+export async function typeName(bridge: EvenAppBridge): Promise<void> {
+  await sleep(TYPE_START_DELAY_MS)
+  const setText = (content: string, bold: boolean): Promise<unknown> =>
+    bridge.textContainerUpgrade({
+      containerID: bold ? C_NAME_BOLD : C_NAME,
+      containerName: bold ? 'name-bold' : 'name',
+      content,
+    }).catch(() => undefined) as Promise<unknown>
+  await setText('', false)
+  void setText('', true)
+  for (let i = 1; i <= NAME_TEXT.length; i += 1) {
+    const slice = NAME_TEXT.slice(0, i)
+    await setText(slice, false)
+    void setText(slice, true)
+    await sleep(TYPE_STEP_MS)
+  }
+  await sleep(TYPE_HOLD_MS)
+}
+
+function isStartTap(evt: { textEvent?: { eventType?: unknown }; sysEvent?: { eventType?: unknown; eventSource?: unknown } }): boolean {
+  const sub = evt.textEvent ?? evt.sysEvent
+  if (!sub) return false
+  const t = OsEventTypeList.fromJson(sub.eventType)
+  if (t === OsEventTypeList.CLICK_EVENT || t === OsEventTypeList.DOUBLE_CLICK_EVENT) return true
+  // 模拟器/宿主 quirk:sysEvent 带 eventSource(眼镜左右)但没有 eventType,等同于单击
+  if (evt.sysEvent && sub.eventType == null) {
+    const src = evt.sysEvent.eventSource
+    if (src === 1 || src === 2) return true
+  }
+  return false
+}
+
+/** 「—— Tap to start ——」闪烁,直到用户点击。 */
+export function waitForStartTap(bridge: EvenAppBridge): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let visible = false
+    let done = false
+    let timer: ReturnType<typeof setInterval> | null = null
+    const unsub = bridge.onEvenHubEvent((evt) => {
+      if (isStartTap(evt as never)) finish()
+    })
+    const finish = (): void => {
+      if (done) return
+      done = true
+      if (timer) { clearInterval(timer); timer = null }
+      unsub()
+      // 点击后把提示定住(重建前的一帧不至于空着)
+      void bridge.textContainerUpgrade({ containerID: C_HINT, containerName: 'hint', content: HINT_TEXT }).catch(() => {})
+      resolve()
+    }
+    visible = true
+    void bridge.textContainerUpgrade({ containerID: C_HINT, containerName: 'hint', content: HINT_TEXT }).catch(() => {})
+    timer = setInterval(() => {
+      if (done) return
+      visible = !visible
+      void bridge.textContainerUpgrade({
+        containerID: C_HINT,
+        containerName: 'hint',
+        content: visible ? HINT_TEXT : '',
+      }).catch(() => {})
+    }, BLINK_MS)
+  })
+}
+
+/**
+ * 换成「提示配置 / 已启动」页:用 runtime 期望的 1/2/3 容器几何重建,
+ * 这样连同 LOGO 图像容器一起被替换掉,runtime 随后只需 textContainerUpgrade。
+ */
+export async function showMessagePage(bridge: EvenAppBridge, lines: string[]): Promise<void> {
+  try {
+    const [status, main, footer] = makeLayoutContainers(APP_DISPLAY_NAME, lines.join('\n'), '')
+    await bridge.rebuildPageContainer(new RebuildPageContainer({
+      containerTotalNum: 3,
+      textObject: [status, main, footer],
+    }))
+  } catch (err) {
+    console.error('[startup] message page failed:', err)
+  }
+}
