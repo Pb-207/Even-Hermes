@@ -79,10 +79,55 @@ def walk(base, skip):
     return sorted(out)
 
 
+TEXT_EXT = {".ts", ".js", ".mjs", ".cjs", ".json", ".md", ".html", ".txt", ".css", ".yml", ".yaml",
+            ".py", ".ps1", ".sh", ".gitignore", ".example"}
+
+
+def file_bytes(path: str) -> bytes:
+    """读文件,并把文本文件的 CRLF 归一成 LF —— git 仓库里存的是 LF,
+    而本地 `git reset --hard` 会把文本文件还原成 CRLF(autocrlf),
+    不归一化就会导致"文件其实没变却每次都被判为有变化"。"""
+    with open(path, "rb") as f:
+        data = f.read()
+    ext = os.path.splitext(path)[1].lower()
+    if ext in TEXT_EXT or os.path.basename(path).startswith(".env") or os.path.basename(path) == ".gitignore":
+        data = data.replace(bytes([13, 10]), bytes([10]))
+    return data
+
+
+def git_blob_sha(path: str) -> str:
+    """算 git 的 blob 对象哈希(sha1('blob <len>\\0' + content)),用来跟远端比对差异。"""
+    import hashlib
+    data = file_bytes(path)
+    h = hashlib.sha1()
+    h.update(b"blob " + str(len(data)).encode() + b"\0")
+    h.update(data)
+    return h.hexdigest()
+
+
+def remote_tree(branch: str) -> dict:
+    """远端该分支的 path -> sha 映射(递归)。"""
+    try:
+        head = api(f"{API}/repos/{REPO}/git/ref/heads/{branch}")["object"]["sha"]
+        tree = api(f"{API}/repos/{REPO}/git/commits/{head}")["tree"]["sha"]
+        data = api(f"{API}/repos/{REPO}/git/trees/{tree}?recursive=1")
+        return {e["path"]: e["sha"] for e in data.get("tree", []) if e.get("type") == "blob"}
+    except Exception as e:
+        print("  (读取远端树失败,改为全量推送)", e)
+        return {}
+
+
 def push(branch, files, msg):
+    known = remote_tree(branch)
+    changed = [(rel, fp) for rel, fp in files if known.get(rel) != git_blob_sha(fp)]
+    skipped = len(files) - len(changed)
+    if not changed:
+        print(f"  {branch} 无变化,跳过推送(共 {len(files)} 个文件)")
+        return None
+    print(f"  {branch}: {len(changed)} 个文件有变化(其余 {skipped} 个未改动,跳过上传)")
     ents = []
-    for rel, fp in files:
-        blob = base64.b64encode(open(fp, "rb").read()).decode()
+    for rel, fp in changed:
+        blob = base64.b64encode(file_bytes(fp)).decode()
         b = api(f"{API}/repos/{REPO}/git/blobs",
                 json.dumps({"content": blob, "encoding": "base64"}).encode(), "POST")
         ents.append({"path": rel, "mode": "100644", "type": "blob", "sha": b["sha"]})
@@ -92,7 +137,7 @@ def push(branch, files, msg):
     c = api(f"{API}/repos/{REPO}/git/commits",
             json.dumps({"message": msg, "tree": tree["sha"], "parents": [base]}).encode(), "POST")
     api(f"{API}/repos/{REPO}/git/refs/heads/{branch}", json.dumps({"sha": c["sha"]}).encode(), "PATCH")
-    print(f"  {branch} -> {c['sha'][:7]} | {len(ents)} 文件 (base {base[:7]})")
+    print(f"  {branch} -> {c['sha'][:7]} (base {base[:7]})")
     return c["sha"]
 
 
