@@ -22,7 +22,7 @@ export async function seedDemoConfig(storage: StorageLike): Promise<void> {
     hermes: { baseUrl: MOCK_BASE, apiKey: 'demo', model: 'demo-model', instructions: '' },
     stt: { baseUrl: MOCK_BASE, apiKey: 'demo', model: 'demo' },
     session: { lastName: 'demo', labels: ['demo'] },
-    lang: 'en',
+    lang: 'zh',
   })
   console.log('[demo] seeded config ->', MOCK_BASE)
 }

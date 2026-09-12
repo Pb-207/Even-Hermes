@@ -1,4 +1,5 @@
 import type { TurnEntry } from './history';
+import { historyPageCount } from './history-view';
 import type { HermesMessage } from './hermes';
 
 export type Gesture = 'TAP' | 'SCROLL_UP' | 'SCROLL_DOWN' | 'DOUBLE_CLICK';
@@ -30,10 +31,10 @@ export type Event =
 
 export type State =
   | { kind: 'home'; conversation: string; view: 'root' | 'folder' | 'desktop'; items: HomeItem[]; selectedIdx: number; loading?: boolean; confirmDelete?: boolean }
-  | { kind: 'idle'; conversation: string; history?: HermesMessage[]; loading?: boolean; crumb?: string; desktop?: boolean }
-  | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean }
-  | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean }
-  | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean }
+  | { kind: 'idle'; conversation: string; history?: HermesMessage[]; loading?: boolean; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
+  | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
+  | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
+  | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
   | { kind: 'displaying'; conversation: string; transcript: string; reply: string; streaming: boolean; toolLabel: string | null; scrollOffset: number; crumb?: string; desktop?: boolean; reveal?: number }
   | { kind: 'disconnected'; conversation: string }
   | { kind: 'error'; conversation: string; message: string; lastTranscript: string };
@@ -167,7 +168,7 @@ export function reduce(state: State, event: Event): Transition {
     if (state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking') {
       // 进行中(录音/转写/思考)→ 取消,回当前会话历史页(保留目录/历史)
       return {
-        state: { kind: 'idle', conversation: state.conversation, history: state.history, crumb: state.crumb, desktop: state.desktop },
+        state: { kind: 'idle', conversation: state.conversation, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
         effects: [{ kind: 'mic_off' }, { kind: 'abort_inflight' }, { kind: 'render' }],
       };
     }
@@ -182,10 +183,14 @@ export function reduce(state: State, event: Event): Transition {
   // SCROLL_UP is universal — abort + new conversation. Exceptions:
   //  - `displaying`: scroll gestures scroll the reply
   //  - `home`: scroll gestures move the menu cursor (handled in the switch)
-  //  - `idle` + history: 历史页,滑动只用容器滚动查看,不触发任何操作
+  //  - `idle` + history: 历史页整段分页显示,SCROLL_UP = 往更旧一页,SCROLL_DOWN = 往更新一页
   if (event.kind === 'gesture' && (event.gesture === 'SCROLL_UP' || event.gesture === 'SCROLL_DOWN')
       && state.kind === 'idle' && state.history && state.history.length) {
-    return { state, effects: [] };
+    const last = Math.max(0, historyPageCount(state.history) - 1);
+    const cur = Math.max(0, Math.min(last, state.histPageFromEnd ?? 0));
+    const next = event.gesture === 'SCROLL_UP' ? Math.min(last, cur + 1) : Math.max(0, cur - 1);
+    if (next === cur) return { state, effects: [] }; // 已在端点,不发多余渲染
+    return { state: { ...state, histPageFromEnd: next }, effects: [{ kind: 'render' }] };
   }
   if (event.kind === 'gesture' && event.gesture === 'SCROLL_UP'
       && state.kind !== 'displaying' && state.kind !== 'home') {
@@ -314,7 +319,7 @@ export function reduce(state: State, event: Event): Transition {
     case 'idle':
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: state.desktop, crumb: state.crumb },
+          state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
           effects: [{ kind: 'mic_on' }, { kind: 'render' }],
         };
       }
@@ -323,13 +328,13 @@ export function reduce(state: State, event: Event): Transition {
     case 'recording':
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
       if (event.kind === 'recording_timeout') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
@@ -350,7 +355,7 @@ export function reduce(state: State, event: Event): Transition {
           };
         }
         return {
-          state: { kind: 'thinking', conversation: state.conversation, transcript: event.text, toolLabel: null, history: state.history, desktop: state.desktop, crumb: state.crumb },
+          state: { kind: 'thinking', conversation: state.conversation, transcript: event.text, toolLabel: null, history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
           effects: [{ kind: 'send', conversation: state.conversation, transcript: event.text }, { kind: 'render' }],
         };
       }
@@ -431,7 +436,7 @@ export function reduce(state: State, event: Event): Transition {
             { kind: 'render' },
           );
           return {
-            state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: true, crumb: state.crumb },
+            state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: true, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
             effects: fx,
           };
         }

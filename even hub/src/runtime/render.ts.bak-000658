@@ -146,6 +146,145 @@ function historyText(h: HermesMessage[] | undefined, fallback: string, fromEnd =
 }
 
 
+// 按容器一行约 38 字符换行,把长消息拆成多行(续行后续缩进用)
+function wrapWords(text: string, width = 38): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const out: string[] = []
+  let line = ''
+  for (const w of words) {
+    if (!line) line = w
+    else if ((line + ' ' + w).length <= width) line += ' ' + w
+    else { out.push(line); line = w }
+  }
+  if (line) out.push(line)
+  return out
+}
+
+const MENU_WINDOW = 6; // 每屏最多 6 个真实项 + 上下省略号 = 8 行 (主容器 232px≈8 行,刚好铺满)
+
+function itemMenuLabel(item: HomeItem): string {
+  if (item.kind === 'new') return LANG_ZH ? '+ 新建会话' : '+ new session';
+  if (item.kind === 'session') return truncate(item.session.title || item.session.id, HOME_ITEM_MAX_CHARS);
+  if (item.kind === 'turn') return truncate(item.turn.transcript, HOME_ITEM_MAX_CHARS);
+  if (item.kind === 'dir') return item.name;
+  return '(?)';
+}
+
+// 窗口化:只显示选中项附近 MENU_WINDOW 行,首尾越界用 "..." 标记。
+// 这样容器内容一屏内,e.g. 镜腿滑动直接发 SCROLL 手势 → 移动选中项,而不是滚动页面。
+function menuWindow(items: HomeItem[], sel: number): string {
+  const n = items.length;
+  if (n === 0) return '';
+  let start = Math.max(0, sel - 3);
+  let end = Math.min(n, start + MENU_WINDOW);
+  if (end - start < MENU_WINDOW && end < n) {
+    start = Math.max(0, end - MENU_WINDOW);
+    end = Math.min(n, start + MENU_WINDOW);
+  }
+  const lines: string[] = [];
+  if (start > 0) lines.push('...');
+  for (let i = start; i < end; i++) lines.push((i === sel ? '> ' : '  ') + itemMenuLabel(items[i]));
+  if (end < n) lines.push('...');
+  return lines.join('\n');
+}
+
+// 会话历史页渲染:整段显示 + 分页(不做缩略)。
+// fromEnd = 0 表示最新一页;实现见 ./history-view。
+function historyText(h: HermesMessage[] | undefined, fallback: string, fromEnd = 0): string {
+  if (!h || !h.length) return fallback;
+  return historyPageText(h, fromEnd);
+}
+
+export function statusLine(state: State, tickIndex = 0): string {
+  const badge = statusBadge(state, tickIndex);
+  const verb = statusVerb(state);
+  const st = [badge, verb].filter(Boolean).join(' ');
+  const maxLen = st ? 28 : 38; // 状态栏单行;过长标题截断(给状态留空间)
+  let crumb = crumbOf(state);
+  if (crumb.length > maxLen) crumb = crumb.slice(0, maxLen - 3) + '...';
+  return st ? `${crumb} ${st}` : crumb;
+}
+
+export function footerHint(state: State): string {
+  // 历史页翻页提示:仅在分页多于 1 页时显示
+  if ((state.kind === 'idle' || state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking')
+      && state.history && state.history.length) {
+    const total = historyPageCount(state.history)
+    if (total > 1) {
+      const fromEnd = state.histPageFromEnd ?? 0
+      const clamped = Math.max(0, Math.min(total - 1, fromEnd))
+      const idx = total - clamped // 1 = 最新页
+      return LANG_ZH ? `第 ${idx}/${total} 页 · 滑动翻页` : `page ${idx}/${total} · swipe to turn`
+    }
+  }
+  return ''; // 其余情况不显示底部提示
+}
+
+// 按容器一行约 38 字符换行,把长消息拆成多行(续行后续缩进用)
+function wrapWords(text: string, width = 38): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const out: string[] = []
+  let line = ''
+  for (const w of words) {
+    if (!line) line = w
+    else if ((line + ' ' + w).length <= width) line += ' ' + w
+    else { out.push(line); line = w }
+  }
+  if (line) out.push(line)
+  return out
+}
+
+const MENU_WINDOW = 6; // 每屏最多 6 个真实项 + 上下省略号 = 8 行 (主容器 232px≈8 行,刚好铺满)
+
+function itemMenuLabel(item: HomeItem): string {
+  if (item.kind === 'new') return LANG_ZH ? '+ 新建会话' : '+ new session';
+  if (item.kind === 'session') return truncate(item.session.title || item.session.id, HOME_ITEM_MAX_CHARS);
+  if (item.kind === 'turn') return truncate(item.turn.transcript, HOME_ITEM_MAX_CHARS);
+  if (item.kind === 'dir') return item.name;
+  return '(?)';
+}
+
+// 窗口化:只显示选中项附近 MENU_WINDOW 行,首尾越界用 "..." 标记。
+// 这样容器内容一屏内,e.g. 镜腿滑动直接发 SCROLL 手势 → 移动选中项,而不是滚动页面。
+function menuWindow(items: HomeItem[], sel: number): string {
+  const n = items.length;
+  if (n === 0) return '';
+  let start = Math.max(0, sel - 3);
+  let end = Math.min(n, start + MENU_WINDOW);
+  if (end - start < MENU_WINDOW && end < n) {
+    start = Math.max(0, end - MENU_WINDOW);
+    end = Math.min(n, start + MENU_WINDOW);
+  }
+  const lines: string[] = [];
+  if (start > 0) lines.push('...');
+  for (let i = start; i < end; i++) lines.push((i === sel ? '> ' : '  ') + itemMenuLabel(items[i]));
+  if (end < n) lines.push('...');
+  return lines.join('\n');
+}
+
+// 渲染会话历史(折叠+总字符预算)。无历史时返回 fallback。
+function historyText(h: HermesMessage[] | undefined, fallback: string): string {
+  if (!h || !h.length) return fallback;
+  let lastAsst = -1, lastUser = -1;
+  h.forEach((m, i) => { if (m.role === 'assistant') lastAsst = i; else lastUser = i; });
+  const MAX_FULL = 200;  // 最新一轮对话单条完整上限
+  const MAX_TOTAL = 500; // 总字符预算(≈2 屏);最新完整优先,其余折叠
+  const fullSet = new Set<number>([lastAsst, lastUser].filter((x) => x >= 0));
+  const newestFirst: string[] = [];
+  let budget = MAX_TOTAL;
+  for (let i = h.length - 1; i >= 0; i--) {
+    const m = h[i];
+    const full = fullSet.has(i);
+    const text = full ? truncate(m.text, MAX_FULL) : truncate(m.text, 36);
+    const line = (m.role === 'assistant' ? 'Hermes: ' : '> ') + text;
+    if (full) { newestFirst.push(line); budget = Math.max(0, budget - line.length); continue; } // 最新一轮完整(优先)
+    if (budget - line.length < 0) continue; // 折叠消息:预算满则跳过(更旧同理)
+    newestFirst.push(line);
+    budget -= line.length;
+  }
+  return newestFirst.reverse().join('\n'); // 旧→新
+}
+
 export function mainContent(state: State, tickIndex = 0): string {
   switch (state.kind) {
     case 'home': {
