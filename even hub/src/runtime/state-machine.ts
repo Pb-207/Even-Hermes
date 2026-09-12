@@ -1,5 +1,5 @@
 import type { TurnEntry } from './history';
-import { historyPageCount } from './history-view';
+import { viewRows, pageWindow, PAGE_ROWS } from './history-view';
 import type { HermesMessage } from './hermes';
 
 export type Gesture = 'TAP' | 'SCROLL_UP' | 'SCROLL_DOWN' | 'DOUBLE_CLICK';
@@ -31,13 +31,13 @@ export type Event =
 
 export type State =
   | { kind: 'home'; conversation: string; view: 'root' | 'folder' | 'desktop'; items: HomeItem[]; selectedIdx: number; loading?: boolean; confirmDelete?: boolean }
-  | { kind: 'idle'; conversation: string; history?: HermesMessage[]; loading?: boolean; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
-  | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
-  | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
-  | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
-  | { kind: 'displaying'; conversation: string; transcript: string; reply: string; streaming: boolean; toolLabel: string | null; scrollOffset: number; crumb?: string; desktop?: boolean; reveal?: number }
+  | { kind: 'idle'; conversation: string; history?: HermesMessage[]; loading?: boolean; crumb?: string; desktop?: boolean;
+      rowAnchor?: number | null; transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null }
+  | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null }
+  | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null }
+  | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null }
   | { kind: 'disconnected'; conversation: string }
-  | { kind: 'error'; conversation: string; message: string; lastTranscript: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number };
+  | { kind: 'error'; conversation: string; message: string; lastTranscript: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null };
 
 export type Effect =
   | { kind: 'mic_on' }
@@ -90,7 +90,7 @@ export function newConversationName(now: Date, seq: number): string {
 /** 回历史页(idle):把会话上下文(历史/面包屑/页号)一并带回去。
  *  不带这些字段时状态栏会退回 '/'、历史也空 —— 用户看到的"返回根目录并显示 error"就是这么来的。 */
 function backToHistory(
-  state: { conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number },
+  state: { conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null },
   extra: Effect[] = [],
 ): Transition {
   return {
@@ -100,7 +100,7 @@ function backToHistory(
       history: state.history,
       crumb: state.crumb,
       desktop: state.desktop,
-      histPageFromEnd: state.histPageFromEnd,
+      rowAnchor: state.rowAnchor,
     },
     effects: [{ kind: 'render' }, ...extra],
   };
@@ -111,22 +111,6 @@ function scrollUpReset(state: State): Transition {
     state: { kind: 'idle', conversation: state.conversation },
     effects: [{ kind: 'mic_off' }, { kind: 'abort_inflight' }, { kind: 'new_conversation' }, { kind: 'render' }],
   };
-}
-
-// Character-based scroll. Half-screen jump per spec is ~116px tall; in monospace
-// body text on the 576px-wide framebuffer that maps to roughly 300 chars.
-export const SCROLL_STEP_CHARS = 300;
-const VISIBLE_CHARS = 950;
-
-function scrollClamp(reply: string, next: number): number {
-  const max = Math.max(0, reply.length - VISIBLE_CHARS);
-  if (next < 0) return 0;
-  if (next > max) return max;
-  return next;
-}
-
-export function isReplyScrollable(reply: string): boolean {
-  return reply.length > VISIBLE_CHARS;
 }
 
 export function reduce(state: State, event: Event): Transition {
@@ -177,17 +161,10 @@ export function reduce(state: State, event: Event): Transition {
         effects: [{ kind: 'reload_sessions' }, { kind: 'render' }],
       };
     }
-    if (state.kind === 'displaying') {
-      // 回复页 → 回当前会话历史页(idle)并刷新历史
-      return {
-        state: { kind: 'idle', conversation: state.conversation, loading: true, crumb: state.crumb, desktop: state.desktop },
-        effects: [{ kind: 'load_session_history', conversation: state.conversation }, { kind: 'render' }],
-      };
-    }
     if (state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking') {
       // 进行中(录音/转写/思考)→ 取消,回当前会话历史页(保留目录/历史)
       return {
-        state: { kind: 'idle', conversation: state.conversation, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
+        state: { kind: 'idle', conversation: state.conversation, history: state.history, crumb: state.crumb, desktop: state.desktop, rowAnchor: state.rowAnchor },
         effects: [{ kind: 'mic_off' }, { kind: 'abort_inflight' }, { kind: 'render' }],
       };
     }
@@ -200,19 +177,27 @@ export function reduce(state: State, event: Event): Transition {
   }
 
   // SCROLL_UP is universal — abort + new conversation. Exceptions:
-  //  - `displaying`: scroll gestures scroll the reply
-  //  - `home`: scroll gestures move the menu cursor (handled in the switch)
-  //  - `idle` + history: 历史页整段分页显示,SCROLL_UP = 往更旧一页,SCROLL_DOWN = 往更新一页
+  //  - `home`: 滑动移动菜单光标(在 switch 里处理)
+  //  - `idle`(含流式视图): 整段分页显示 —— SCROLL_UP 往更旧一页、SCROLL_DOWN 往更新一页,
+  //    滚回最末页则恢复「跟随末尾」,于是流式内容超出时会自动翻页。
   if (event.kind === 'gesture' && (event.gesture === 'SCROLL_UP' || event.gesture === 'SCROLL_DOWN')
-      && state.kind === 'idle' && state.history && state.history.length) {
-    const last = Math.max(0, historyPageCount(state.history) - 1);
-    const cur = Math.max(0, Math.min(last, state.histPageFromEnd ?? 0));
-    const next = event.gesture === 'SCROLL_UP' ? Math.min(last, cur + 1) : Math.max(0, cur - 1);
-    if (next === cur) return { state, effects: [] }; // 已在端点,不发多余渲染
-    return { state: { ...state, histPageFromEnd: next }, effects: [{ kind: 'render' }] };
+      && state.kind === 'idle') {
+    const rows = viewRows(state.history, { transcript: state.transcript, reply: state.reply, reveal: state.reveal })
+    if (rows.length) {
+      const cur = state.rowAnchor ?? null
+      const { start, pages } = pageWindow(rows.length, cur)
+      const lastStart = (pages - 1) * PAGE_ROWS
+      const next = event.gesture === 'SCROLL_UP'
+        ? Math.max(0, start - PAGE_ROWS)
+        : (start + PAGE_ROWS >= lastStart ? null : start + PAGE_ROWS)
+      if (next !== cur && !(cur === null && next === lastStart)) {
+        return { state: { ...state, rowAnchor: next }, effects: [{ kind: 'render' }] }
+      }
+      return { state, effects: [] }
+    }
   }
   if (event.kind === 'gesture' && event.gesture === 'SCROLL_UP'
-      && state.kind !== 'displaying' && state.kind !== 'home') {
+      && state.kind !== 'home') {
     return scrollUpReset(state);
   }
 
@@ -225,14 +210,18 @@ export function reduce(state: State, event: Event): Transition {
   }
   // 历史刷新:任意带 history 的会话态都更新;idle 时清除 loading(加载完成)
   if (event.kind === 'session_history_loaded' && state.kind === 'idle') {
+    // 历史里已包含这次的提问/回复 → 清掉一次性流式字段,避免重复显示(仍在流式时不动)
+    const keepStream = state.streaming === true;
     return {
-      state: { ...state, history: event.messages, loading: false },
+      state: keepStream
+        ? { ...state, history: event.messages, loading: false }
+        : { ...state, history: event.messages, loading: false, transcript: undefined, reply: undefined, reveal: undefined, toolLabel: null, rowAnchor: null },
       effects: [{ kind: 'render' }],
     };
   }
   if (event.kind === 'phone_send') {
     // 手机端打字发送:与语音识别结果同一链路 → 眼镜端进入流式回复页
-    if (state.kind === 'idle' || state.kind === 'displaying') {
+    if (state.kind === 'idle') {
       const conv = state.conversation;
       return {
         state: {
@@ -252,7 +241,7 @@ export function reduce(state: State, event: Event): Transition {
   }
   if (event.kind === 'session_history_loaded'
       && (state.kind === 'recording' || state.kind === 'transcribing'
-          || state.kind === 'thinking' || state.kind === 'displaying')) {
+          || state.kind === 'thinking')) {
     return {
       state: { ...state, history: event.messages },
       effects: [{ kind: 'render' }],
@@ -318,16 +307,16 @@ export function reduce(state: State, event: Event): Transition {
         // Replay: land in displaying-done with the historical turn loaded.
         return {
           state: {
-            kind: 'displaying',
+            kind: 'idle',
             conversation: item.turn.conversation,
             transcript: item.turn.transcript,
             reply: item.turn.reply,
             streaming: false,
             toolLabel: null,
-            scrollOffset: 0,
-            reveal: 0,
+            reveal: item.turn.reply.length,
             crumb: '/Glasses',
             desktop: false,
+            rowAnchor: null,
           },
           effects: [{ kind: 'render' }],
         };
@@ -337,9 +326,35 @@ export function reduce(state: State, event: Event): Transition {
 
     case 'idle':
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
+        // 正在流式 → 打断;否则直接开始新的语音(与原「回复页」行为一致)
+        const fx: Effect[] = state.streaming ? [{ kind: 'abort_inflight' }] : [];
+        fx.push({ kind: 'mic_on' }, { kind: 'render' });
         return {
-          state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
-          effects: [{ kind: 'mic_on' }, { kind: 'render' }],
+          state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor },
+          effects: fx,
+        };
+      }
+      if (event.kind === 'reveal') {
+        // 打字机:显示端逐字追上已到达的全文(与网络/推理节奏解耦)
+        const full = (state.reply ?? '').length;
+        const cur = state.reveal ?? full;
+        if (cur >= full) return { state, effects: [] };
+        const step = Math.min(8, Math.max(1, Math.ceil((full - cur) / 40)));
+        return { state: { ...state, reveal: Math.min(full, cur + step) }, effects: [{ kind: 'render' }] };
+      }
+      if (state.streaming && event.kind === 'hermes_delta') {
+        return { state: { ...state, reply: (state.reply ?? '') + event.text }, effects: [{ kind: 'render' }] };
+      }
+      if (state.streaming && event.kind === 'hermes_tool') {
+        return { state: { ...state, toolLabel: event.label }, effects: [{ kind: 'render' }] };
+      }
+      if (state.streaming && event.kind === 'hermes_ok') {
+        return { state: { ...state, streaming: false, reply: event.text, toolLabel: null }, effects: [{ kind: 'render' }] };
+      }
+      if (state.streaming && event.kind === 'hermes_err') {
+        return {
+          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript ?? '', history: state.history, crumb: state.crumb, desktop: state.desktop, rowAnchor: state.rowAnchor },
+          effects: [{ kind: 'render' }],
         };
       }
       return { state, effects: [] };
@@ -347,13 +362,13 @@ export function reduce(state: State, event: Event): Transition {
     case 'recording':
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
       if (event.kind === 'recording_timeout') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
@@ -369,7 +384,7 @@ export function reduce(state: State, event: Event): Transition {
           return backToHistory(state)
         }
         return {
-          state: { kind: 'thinking', conversation: state.conversation, transcript: event.text, toolLabel: null, history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
+          state: { kind: 'thinking', conversation: state.conversation, transcript: event.text, toolLabel: null, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor },
           effects: [{ kind: 'send', conversation: state.conversation, transcript: event.text }, { kind: 'render' }],
         };
       }
@@ -389,13 +404,12 @@ export function reduce(state: State, event: Event): Transition {
       if (event.kind === 'hermes_delta') {
         return {
           state: {
-            kind: 'displaying',
+            kind: 'idle',
             conversation: state.conversation,
             transcript: state.transcript,
             reply: event.text,
             streaming: true,
             toolLabel: state.toolLabel,
-            scrollOffset: 0,
             reveal: 0,
             desktop: state.desktop,
             history: state.history,
@@ -414,13 +428,12 @@ export function reduce(state: State, event: Event): Transition {
         // 进入 B 页面(displaying):顶部显示识别文本,下方显示最新回复
         return {
           state: {
-            kind: 'displaying',
+            kind: 'idle',
             conversation: state.conversation,
             transcript: state.transcript,
             reply: event.text,
             streaming: false,
             toolLabel: null,
-            scrollOffset: 0,
             reveal: 0,
             desktop: state.desktop,
             history: state.history,
@@ -431,79 +444,7 @@ export function reduce(state: State, event: Event): Transition {
       }
       if (event.kind === 'hermes_err') {
         return {
-          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
-          effects: [{ kind: 'render' }],
-        };
-      }
-      return { state, effects: [] };
-
-    case 'displaying':
-      if (event.kind === 'gesture' && event.gesture === 'TAP') {
-        if (state.desktop) {
-          // 桌面会话 B 页:单击 → 回 A(历史页)+刷新历史+立即开始录音(listening)
-          const fx: Effect[] = state.streaming ? [{ kind: 'abort_inflight' }] : [];
-          fx.push(
-            { kind: 'load_session_history', conversation: state.conversation },
-            { kind: 'mic_on' },
-            { kind: 'render' },
-          );
-          return {
-            state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: true, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
-            effects: fx,
-          };
-        }
-        // Streaming: tap interrupts the in-flight stream AND starts a new utterance.
-        // Done: tap just starts a new utterance.
-        const effects: Effect[] = state.streaming
-          ? [{ kind: 'abort_inflight' }, { kind: 'mic_on' }, { kind: 'render' }]
-          : [{ kind: 'mic_on' }, { kind: 'render' }];
-        return {
-          state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now() },
-          effects,
-        };
-      }
-      // Scroll gestures only do anything when the reply is finalized and overflows.
-      if (!state.streaming && event.kind === 'gesture' && event.gesture === 'SCROLL_UP') {
-        if (!isReplyScrollable(state.reply)) return { state, effects: [] };
-        const next = scrollClamp(state.reply, state.scrollOffset + SCROLL_STEP_CHARS);
-        if (next === state.scrollOffset) return { state, effects: [] };
-        return { state: { ...state, scrollOffset: next }, effects: [{ kind: 'render' }] };
-      }
-      if (!state.streaming && event.kind === 'gesture' && event.gesture === 'SCROLL_DOWN') {
-        if (!isReplyScrollable(state.reply)) return { state, effects: [] };
-        const next = scrollClamp(state.reply, state.scrollOffset - SCROLL_STEP_CHARS);
-        if (next === state.scrollOffset) return { state, effects: [] };
-        return { state: { ...state, scrollOffset: next }, effects: [{ kind: 'render' }] };
-      }
-      if (event.kind === 'reveal') {
-        // 打字机:显示端逐字追上已到达的全文(与网络/推理节奏解耦)
-        const full = state.reply.length;
-        const cur = state.reveal ?? 0;
-        if (cur >= full) return { state, effects: [] };
-        const step = Math.min(8, Math.max(1, Math.ceil((full - cur) / 40))); // 打字机:剩余/40(比 /20 慢一半),每拍上限 8 字以免长文本忽快
-        return { state: { ...state, reveal: Math.min(full, cur + step) }, effects: [{ kind: 'render' }] };
-      }
-      if (state.streaming && event.kind === 'hermes_delta') {
-        return {
-          state: { ...state, reply: state.reply + event.text },
-          effects: [{ kind: 'render' }],
-        };
-      }
-      if (state.streaming && event.kind === 'hermes_tool') {
-        return {
-          state: { ...state, toolLabel: event.label },
-          effects: [{ kind: 'render' }],
-        };
-      }
-      if (state.streaming && event.kind === 'hermes_ok') {
-        return {
-          state: { ...state, streaming: false, reply: event.text, toolLabel: null },
-          effects: [{ kind: 'render' }],
-        };
-      }
-      if (state.streaming && event.kind === 'hermes_err') {
-        return {
-          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
+          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript, history: state.history, crumb: state.crumb, desktop: state.desktop, rowAnchor: state.rowAnchor },
           effects: [{ kind: 'render' }],
         };
       }
@@ -513,7 +454,7 @@ export function reduce(state: State, event: Event): Transition {
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         if (state.lastTranscript) {
           return {
-            state: { kind: 'thinking', conversation: state.conversation, transcript: state.lastTranscript, toolLabel: null, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
+            state: { kind: 'thinking', conversation: state.conversation, transcript: state.lastTranscript, toolLabel: null, history: state.history, crumb: state.crumb, desktop: state.desktop, rowAnchor: state.rowAnchor },
             effects: [
               { kind: 'send', conversation: state.conversation, transcript: state.lastTranscript },
               { kind: 'render' },

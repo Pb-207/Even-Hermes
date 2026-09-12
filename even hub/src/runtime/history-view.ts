@@ -141,3 +141,38 @@ export function historyPageText(h: HermesMessage[] | undefined, fromEnd = 0): st
   const clamped = Math.max(0, Math.min(pages.length - 1, Math.max(0, Math.floor(fromEnd) || 0)))
   return pages[pages.length - 1 - clamped]
 }
+
+/**
+ * 页面几何:anchor = 该页起始行号;null = 跟随末尾(最新页)。
+ * 流式回复时内容会不断增长,用「倒数第几页」定位会漂移,所以用绝对行号锚点。
+ */
+export function pageWindow(totalRows: number, anchor: number | null): { start: number; pages: number; index: number } {
+  const pages = Math.max(1, Math.ceil(totalRows / PAGE_ROWS))
+  const lastStart = (pages - 1) * PAGE_ROWS
+  const start = anchor == null ? lastStart : Math.max(0, Math.min(lastStart, anchor))
+  return { start, pages, index: start / PAGE_ROWS + 1 }
+}
+
+/** 取某页文本(按起始行号) */
+export function pageTextAt(rows: string[], start: number): string {
+  return rows.slice(start, start + PAGE_ROWS).join('\n')
+}
+
+/**
+ * 「当前视图」的显示行:真实历史 + 本次请求 + 流式回复(按 reveal 逐字揭示)。
+ * 流式显示与历史页共用同一套展开/分页规则 —— 所以流式内容不再被截断,超出即自动翻到新页。
+ */
+export function viewRows(
+  h: HermesMessage[] | undefined,
+  opts: { transcript?: string; reply?: string; reveal?: number } = {},
+): string[] {
+  const msgs: HermesMessage[] = [...(h ?? [])]
+  const t = (opts.transcript ?? '').trim()
+  if (t) msgs.push({ role: 'user', text: t })
+  const full = opts.reply ?? ''
+  if (full) {
+    const n = opts.reveal == null ? full.length : Math.max(0, Math.min(full.length, opts.reveal))
+    if (n > 0) msgs.push({ role: 'assistant', text: full.slice(0, n) })
+  }
+  return historyRows(msgs)
+}

@@ -1,9 +1,8 @@
 import { TextContainerUpgrade } from '@evenrealities/even_hub_sdk';
 import type { State, HomeItem } from './state-machine';
-import { isReplyScrollable } from './state-machine';
 import type { HermesMessage } from './hermes';
 import { stripMarkdown } from './markdown-strip'
-import { historyPageText, historyPageCount } from './history-view';
+import { viewRows, pageWindow, pageTextAt } from './history-view';
 
 export const MAX_MAIN_CHARS = 950;
 
@@ -29,14 +28,13 @@ function statusBadge(state: State, tickIndex: number): string {
     case 'transcribing':
     case 'thinking':
       return SPINNER_FRAMES[tickIndex % SPINNER_FRAMES.length];
-    case 'displaying':
-      return state.toolLabel ? SPINNER_FRAMES[tickIndex % SPINNER_FRAMES.length] : '';
     case 'error':
       return '×';
     case 'home':
       return state.loading ? SPINNER_FRAMES[tickIndex % SPINNER_FRAMES.length] : '';
     case 'idle':
-      return state.loading ? SPINNER_FRAMES[tickIndex % SPINNER_FRAMES.length] : '';
+      return (state.loading || state.streaming || state.toolLabel)
+        ? SPINNER_FRAMES[tickIndex % SPINNER_FRAMES.length] : '';
     default:
       return '';
   }
@@ -50,11 +48,10 @@ function statusVerb(state: State): string {
       return 'thinking';
     case 'thinking':
       return state.toolLabel ?? 'thinking';
-    case 'displaying':
-      return state.toolLabel ?? '';
     case 'home':
       return state.loading ? 'loading' : '';
     case 'idle':
+      if (state.streaming || state.toolLabel) return state.toolLabel ?? 'thinking';
       return state.loading ? 'loading' : '';
     case 'error':
       return 'error';
@@ -82,15 +79,15 @@ export function statusLine(state: State, tickIndex = 0): string {
 }
 
 export function footerHint(state: State): string {
-  // 历史页翻页提示:仅在分页多于 1 页时显示
-  if ((state.kind === 'idle' || state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking')
-      && state.history && state.history.length) {
-    const total = historyPageCount(state.history)
-    if (total > 1) {
-      const fromEnd = state.histPageFromEnd ?? 0
-      const clamped = Math.max(0, Math.min(total - 1, fromEnd))
-      const idx = total - clamped // 1 = 最新页
-      return LANG_ZH ? `第 ${idx}/${total} 页 · 滑动翻页` : `page ${idx}/${total} · swipe to turn`
+  // 历史页(含流式)翻页提示:仅在分页多于 1 页时显示
+  if (state.kind === 'idle' || state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking') {
+    const st = state as { history?: HermesMessage[]; transcript?: string; reply?: string; reveal?: number; rowAnchor?: number | null };
+    const rows = viewRows(st.history, { transcript: st.transcript, reply: st.reply, reveal: st.reveal });
+    if (rows.length) {
+      const { pages, index } = pageWindow(rows.length, st.rowAnchor ?? null);
+      if (pages > 1) {
+        return LANG_ZH ? `第 ${index}/${pages} 页 · 滑动翻页` : `page ${index}/${pages} · swipe to turn`;
+      }
     }
   }
   return ''; // 其余情况不显示底部提示
@@ -138,11 +135,13 @@ function menuWindow(items: HomeItem[], sel: number): string {
   return lines.join('\n');
 }
 
-// 会话历史页渲染:整段显示 + 分页(不做缩略)。
-// fromEnd = 0 表示最新一页;实现见 ./history-view。
-function historyText(h: HermesMessage[] | undefined, fallback: string, fromEnd = 0): string {
-  if (!h || !h.length) return fallback;
-  return historyPageText(h, fromEnd);
+// 历史页(含流式回复)当前页文本:同一套展开/分页规则 —— 流式不再截断,超出自动翻页。
+function viewText(state: State): string {
+  const st = state as { history?: HermesMessage[]; transcript?: string; reply?: string; reveal?: number; rowAnchor?: number | null };
+  const rows = viewRows(st.history, { transcript: st.transcript, reply: st.reply, reveal: st.reveal });
+  if (!rows.length) return '';
+  const { start } = pageWindow(rows.length, st.rowAnchor ?? null);
+  return pageTextAt(rows, start);
 }
 
 
@@ -173,45 +172,12 @@ export function mainContent(state: State, tickIndex = 0): string {
     }
     case 'idle':
       if (state.loading) return 'Loading ' + SPINNER_FRAMES[tickIndex % SPINNER_FRAMES.length];
-      return historyText(state.history, '', state.histPageFromEnd ?? 0); // 无历史时空白(不显示操作指南)
+      return viewText(state); // 无历史时空白(不显示操作指南)
     case 'recording':
-      return historyText(state.history, '', state.histPageFromEnd ?? 0); // 历史页内录音:显示历史,顶部提示 listening
+      return viewText(state); // 历史页内录音:显示历史,顶部提示 listening
     case 'transcribing':
     case 'thinking':
-      return historyText(state.history, '...', state.histPageFromEnd ?? 0);
-    case 'displaying': {
-      void tickIndex; // cursor removed; tickIndex kept for parity with other states
-      // 一页内呈现「上一次请求 + 最新回复尾部」;内容超出即刷掉前面的回复(不翻页)
-      const ROW = 24;  // 每行约 24 字符(主容器宽 / 字宽)
-      const PAGE = 168; // 主容器一页 ≈ 7 行
-      const t = stripMarkdown(state.transcript);
-      const req = t ? '> ' + (t.length > 90 ? '...' + t.slice(t.length - 87) : t) + '\n' : '';
-      const headPrefix = req + 'Hermes: ';
-      const revealedReply = state.reveal != null ? state.reply.slice(0, state.reveal) : state.reply;
-      const body = stripMarkdown(revealedReply);
-      const remain = Math.max(ROW, PAGE - headPrefix.length);
-      // 按「显示行」取尾部:换行符占一整行,长行按宽度折算成多行
-      const dispCost = (s: string) => (s.length === 0 ? 1 : Math.ceil(s.length / ROW)) * ROW;
-      const bodyLines = body.split('\n');
-      const kept: string[] = [];
-      let used = 0;
-      for (let i = bodyLines.length - 1; i >= 0; i--) {
-        const line = bodyLines[i];
-        const cost = dispCost(line);
-        if (used + cost > remain) {
-          if (kept.length === 0) {
-            // 单行就超过一页(无换行长文本):取该行尾部
-            const cap = Math.max(1, Math.floor(remain / ROW)) * ROW;
-            kept.unshift(line.slice(Math.max(0, line.length - cap)));
-          }
-          break;
-        }
-        kept.unshift(line);
-        used += cost;
-      }
-      const tail = (kept.length < bodyLines.length ? '...' : '') + kept.join('\n');
-      return headPrefix + tail;
-    }
+      return viewText(state) || '...';
     case 'disconnected':
       return 'Glasses disconnected — reconnecting...';
     case 'error':
