@@ -2,18 +2,24 @@ import { loadConfig, isConfigured } from './config'
 import { renderSetupView } from './setup-view'
 import { startRuntime } from './runtime/runtime'
 import { getBridgeWithDevFallback } from './dev-bridge'
-import { createStartupPage, sleep, STARTUP_DWELL_MS } from './startup-page'
+import { APP_DISPLAY_NAME, STARTUP_DWELL_MS, sleep } from './startup-page'
+import { createAnimationPage, playLogoIntro, typeName, waitForStartTap, showMessagePage } from './startup-animation'
+
+/** 提示页文案(启动动画结束后显示,随后进入会话界面) */
+const LINES_MESSAGE = [
+  'Hermes Lens 已启动,',
+  '请在手机上配置。',
+  '',
+  'Hermes Lens started,',
+  'please configure on the phone.',
+]
 
 async function boot(): Promise<void> {
   const bridge = await getBridgeWithDevFallback()
 
-  // 官方要求:app 启动后眼镜上必须「立刻」有渲染(哪怕一闪),不能黑屏。
-  // 先创建启动页;runtime 稍后复用同一批容器直接渲染,不会重复建页。
-  const pageCreated = await createStartupPage(bridge)
-
-  // 让启动页在眼镜上**看得见**:停留时间从建页开始计时,与下面的读配置并行。
-  // 未配置时会停在启动页(提示去手机端),配置好则由 runtime 接管同一批容器。
-  const dwell = pageCreated ? sleep(STARTUP_DWELL_MS) : Promise.resolve()
+  // 官方要求:app 启动后眼镜上必须「立刻」有渲染,不能黑屏。
+  // 第一步就建启动动画页(LOGO + 名称),所以首帧一定有内容。
+  const animPage = await createAnimationPage(bridge)
 
   // 运行时提示页:始终带「Configure / 配置」按钮(否则保存启动后按钮会消失)
   const mountShim = (): void => {
@@ -32,7 +38,7 @@ async function boot(): Promise<void> {
   const onLaunch = async (): Promise<void> => {
     const reloaded = await loadConfig(bridge)
     mountShim()
-    await startRuntime({ bridge, config: reloaded, pageCreated })
+    await startRuntime({ bridge, config: reloaded, pageCreated: true })
   }
 
   const openSetup = async (): Promise<void> => {
@@ -45,15 +51,32 @@ async function boot(): Promise<void> {
     if (demo.isDemoMode()) await demo.seedDemoConfig(bridge)
   }
 
+  // 读配置与动画并行(只是一次本地读,不会拖慢启动)
   const config = await loadConfig(bridge)
-  if (!isConfigured(config)) {
+  const configured = isConfigured(config)
+
+  if (animPage) {
+    // 1. LOGO 2. 打字机打出名字 3. —— Tap to start —— 闪烁,直到点击
+    await playLogoIntro(bridge)
+    await typeName(bridge)
+    await waitForStartTap(bridge)
+    // 点击后换成提示页(同一批 runtime 容器布局,LOGO 图像容器随重建一起消失)
+    await showMessagePage(bridge, LINES_MESSAGE)
+  } else {
+    // 建页失败(例如已有页面):退化为只显示提示页,至少不黑屏
+    await showMessagePage(bridge, LINES_MESSAGE)
+  }
+
+  // 提示页在眼镜上停一会儿,让人看清
+  await sleep(STARTUP_DWELL_MS)
+
+  if (!configured) {
     await openSetup()
     return
   }
 
   mountShim()
-  await dwell
-  await startRuntime({ bridge, config, pageCreated })
+  await startRuntime({ bridge, config, pageCreated: true })
 }
 
 boot().catch((err) => {
