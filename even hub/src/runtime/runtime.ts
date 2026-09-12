@@ -202,6 +202,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
   let seq = 1
   let conversation = config.session.lastName || newConversationName(new Date(), seq)
   let desktopIds = new Set<string>() // 桌面会话 id 集合(接续聊天用)
+  let micSeq = 0
   let state: State = initialState(conversation)
 
   const render = new RenderQueue(bridge)
@@ -286,9 +287,14 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
       case 'mic_on': {
         recorder.reset()
         sttStream?.close()
+        console.log('[runtime] mic_on -> open ws stream', ++micSeq)
         sttStream = openSttStream(config.stt, {
           onPartial: (text) => { void dispatch({ kind: 'stt_partial', text }) },
         })
+        // 先等流就绪(最多 ~1.2s)再开麦:否则握手期间采到的音频只能靠缓冲,
+        // 且服务端连不上时用户完全看不到「正在转写」。失败也只是继续走 REST 回落。
+        const streamReady = await sttStream.ready(1200)
+        console.log('[runtime] ws ready =', streamReady)
         await bridge.audioControl(true)
         if (recordingTimer) clearTimeout(recordingTimer)
         recordingTimer = setTimeout(() => dispatch({ kind: 'recording_timeout' }), RECORDING_TIMEOUT_MS)
@@ -309,6 +315,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
         // 流式:停止推流后等服务端 FINAL(它按 ~0.7s 静音判定),拿到就直接用
         if (sttStream) {
           const streamed = await sttStream.finish(1800)
+          console.log('[runtime] ws finish ->', streamed === null ? 'null (REST fallback)' : JSON.stringify(streamed.slice(0, 30)))
           sttStream.close()
           sttStream = null
           if (streamed && streamed.trim()) {
@@ -404,6 +411,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
         const t0 = Date.now()
         try {
           const items = await buildDesktopItems(config.hermes)
+          console.log('[runtime] reload_sessions -> desktopIds', JSON.stringify(Array.from(items.filter((x: any) => x.kind === 'session').map((x: any) => x.session.id)).map((s: string) => s.slice(0, 12))))
           desktopIds = new Set(items.filter((x: any) => x.kind === 'session').map((x: any) => x.session.id))
           await new Promise<void>((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))))
           dispatch({ kind: 'home_loaded', items })
@@ -417,6 +425,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
         try { await deleteSession(config.hermes, e.conversation) } catch (err) { console.error('[runtime] delete session failed:', err) }
         try {
           const items = await buildDesktopItems(config.hermes)
+          console.log('[runtime] reload_sessions -> desktopIds', JSON.stringify(Array.from(items.filter((x: any) => x.kind === 'session').map((x: any) => x.session.id)).map((s: string) => s.slice(0, 12))))
           desktopIds = new Set(items.filter((x: any) => x.kind === 'session').map((x: any) => x.session.id))
           dispatch({ kind: 'home_loaded', items })
         } catch (err) {
@@ -437,6 +446,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
         return
       }
       case 'load_session_history': {
+        console.log('[runtime] load_session_history -> desktopIds.add', e.conversation.slice(0, 12))
         desktopIds.add(e.conversation) // 从 Desktop 列表进入,该会话必为桌面会话 → 发送走 sessionChat(接续)
         const t0 = Date.now()
         try {
