@@ -197,7 +197,8 @@ export async function playLogoIntro(bridge: EvenAppBridge, pageMode: PageMode): 
   await sleep(LOGO_PORTRAIT_MS)
   const tag = (r: LogoPush): string => (r.ok ? (r.how === 'bytes' ? 'B' : 'b') + r.ms : 'x')
   const dbg = `${pageMode} M:${tag(m)} P:${tag(p)}`
-  void bridge.textContainerUpgrade({ containerID: C_HINT, containerName: 'hint', content: dbg }).catch(() => {})
+  // 只在日志里留诊断信息(真机实测:裸字节可用;推送耗时 ~250ms/~620ms,比模拟器慢很多)
+  console.log('[startup] intro', dbg)
   return dbg
 }
 
@@ -219,8 +220,6 @@ export async function typeName(bridge: EvenAppBridge): Promise<void> {
     await sleep(TYPE_STEP_MS)
   }
   await sleep(TYPE_HOLD_MS)
-  // 清掉诊断行(用空格),给闪烁提示让位
-  void bridge.textContainerUpgrade({ containerID: C_HINT, containerName: 'hint', content: EMPTY }).catch(() => {})
 }
 
 function isStartTap(evt: { textEvent?: { eventType?: unknown }; sysEvent?: { eventType?: unknown; eventSource?: unknown } }): boolean {
