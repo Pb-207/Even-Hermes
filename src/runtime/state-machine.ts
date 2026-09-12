@@ -102,7 +102,7 @@ function backToHistory(
       desktop: state.desktop,
       rowAnchor: state.rowAnchor,
     },
-    effects: [{ kind: 'render' }, ...extra],
+    effects: [...extra, { kind: 'render' }],
   };
 }
 
@@ -186,6 +186,7 @@ export function reduce(state: State, event: Event): Transition {
     if (rows.length) {
       const cur = state.rowAnchor ?? null
       const { start, pages } = pageWindow(rows.length, cur)
+      if (pages === 1) return { state, effects: [] } // 只有一页:滚动不做任何事
       const lastStart = (pages - 1) * PAGE_ROWS
       const next = event.gesture === 'SCROLL_UP'
         ? Math.max(0, start - PAGE_ROWS)
