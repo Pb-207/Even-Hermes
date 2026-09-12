@@ -32,6 +32,10 @@ MESSAGES = {
         {"role": "assistant", "content": "Anytime. Ping me if the reflow logs need a second pair of eyes."},
         {"role": "user", "content": "顺便把烘箱的升温曲线和扫描探针的结果一起整理成一份中文小结，明早发我。"},
         {"role": "assistant", "content": "好的：升温曲线取 120°C 保温 30 分钟那一段，扫描探针部分用 B 样品的数据并注明 C 样品需要重测，明早一并发给你。"},
+        {"role": "assistant", "content": ""},
+        {"role": "tool", "content": "{\"command\": \"hermes sessions list --limit 5\", \"status\": \"exited\", \"exit_code\": 0}"},
+        {"role": "assistant", "content": "先查了最近 5 个会话，确认烘箱那条是 demo-1。"},
+        {"role": "tool", "content": "{\"output\": \"120C hold 30min, cool-down on schedule\\npeak 120.4C at t=18min\\nsample B clean\", \"status\": \"ok\"}"},
     ],
     "demo-2": [
         {"role": "user", "content": "How did sample B look?"},
