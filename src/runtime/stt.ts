@@ -82,6 +82,7 @@ export function openSttStream(cfg: SttConfig, handlers: SttStreamHandlers = {}):
   let lastPartial = ''
   let finalText: string | null = null
   let onFinalWait: ((t: string | null) => void) | null = null
+  let pending: Uint8Array[] = []      // 握手期间收到的帧,open 后补发
 
   const extract = (raw: unknown): string => {
     try {
@@ -97,6 +98,13 @@ export function openSttStream(cfg: SttConfig, handlers: SttStreamHandlers = {}):
     ws = new WebSocket(toWsUrl(cfg.baseUrl, cfg.apiKey))
     ws.binaryType = 'arraybuffer'
     ws.onopen = () => {
+      console.log('[stt] ws open', toWsUrl(cfg.baseUrl, ''))
+      // 握手期间(~100-300ms)采到的帧不能丢,open 后按序补发
+      for (const f of pending) {
+        try { ws?.send(f) } catch { /* ignore */ }
+      }
+      if (pending.length) console.log('[stt] flushed', pending.length, 'buffered frames')
+      pending = []
       try {
         // 浏览器 WebSocket 不能带请求头 → key 放在 config JSON 里(服务端也接受 ?api_key=)
         ws?.send(JSON.stringify({
@@ -109,24 +117,26 @@ export function openSttStream(cfg: SttConfig, handlers: SttStreamHandlers = {}):
       if (!raw) return
       try {
         const o = JSON.parse(raw) as { type?: string; is_final?: boolean }
-        if (o.type === 'Started') { usable = true; return }
-        if (o.type === 'Error') { handlers.onUnavailable?.(); return }
+        if (o.type === 'Started') { usable = true; console.log('[stt] ws streaming available'); return }
+        if (o.type === 'Error') { console.warn('[stt] ws error frame -> REST fallback'); handlers.onUnavailable?.(); return }
         if (o.type === 'Results') {
           const text = extract(o)
           if (!text) return
           if (o.is_final) {
             finalText = text
+            console.log('[stt] ws final:', text.slice(0, 40))
             handlers.onFinal?.(text)
             onFinalWait?.(text)
           } else if (text !== lastPartial) {
             lastPartial = text
+            console.log('[stt] ws partial:', text.slice(0, 40))
             handlers.onPartial?.(text)
           }
         }
       } catch { /* ignore */ }
     }
-    ws.onerror = () => { if (!usable) handlers.onUnavailable?.() }
-    ws.onclose = () => { closed = true; if (!usable) handlers.onUnavailable?.() }
+    ws.onerror = () => { if (!usable) { console.warn('[stt] ws error before Started -> REST fallback'); handlers.onUnavailable?.() } }
+    ws.onclose = (ev) => { closed = true; if (!usable) { console.warn('[stt] ws closed before Started -> REST fallback', ev?.code); handlers.onUnavailable?.() } }
   } catch {
     handlers.onUnavailable?.()
   }
@@ -134,7 +144,11 @@ export function openSttStream(cfg: SttConfig, handlers: SttStreamHandlers = {}):
   return {
     get usable() { return usable },
     send(pcm: Uint8Array) {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      if (closed) return
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (pending.length < 300) pending.push(pcm)   // 最多缓存 ~30s,防内存爆
+        return
+      }
       try { ws.send(pcm) } catch { /* ignore */ }
     },
     finish(waitMs = 1500) {

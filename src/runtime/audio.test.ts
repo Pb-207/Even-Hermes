@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pcmToWav, PcmRecorder, MIN_USEFUL_BYTES } from './audio'
+import { pcmToWav, PcmRecorder, MIN_USEFUL_BYTES, toPcmBytes } from './audio'
 
 function decodeAscii(buf: ArrayBuffer, offset: number, length: number): string {
   const u8 = new Uint8Array(buf, offset, length)
@@ -74,5 +74,37 @@ describe('PcmRecorder', () => {
 
   it('exposes MIN_USEFUL_BYTES = 3200 (0.1s of 16 kHz mono 16-bit PCM)', () => {
     expect(MIN_USEFUL_BYTES).toBe(3200)
+  })
+})
+
+describe('toPcmBytes —— 宿主音频帧归一化', () => {
+  // 真机给的是 number[](SDK 文档:Uint8List 经 JSON 后多为 number[] 或 base64)。
+  // 早期只用 instanceof Uint8Array 判断,导致真机每一帧都被丢弃(= 录音没声音)。
+  it('number[] -> 字节', () => {
+    const out = toPcmBytes([0, 1, 255, 128])
+    expect(out).toBeInstanceOf(Uint8Array)
+    expect(Array.from(out!)).toEqual([0, 1, 255, 128])
+  })
+
+  it('Uint8Array 原样返回', () => {
+    const src = new Uint8Array([1, 2, 3])
+    expect(toPcmBytes(src)).toBe(src)
+  })
+
+  it('base64 字符串 -> 字节', () => {
+    // "AQID" = [1,2,3]
+    expect(Array.from(toPcmBytes('AQID')!)).toEqual([1, 2, 3])
+  })
+
+  it('类数组对象 {0:..,1:..} -> 字节', () => {
+    expect(Array.from(toPcmBytes({ 0: 7, 1: 8 })!)).toEqual([7, 8])
+  })
+
+  it('空值 / 非法输入 -> null(不抛异常)', () => {
+    expect(toPcmBytes(undefined)).toBeNull()
+    expect(toPcmBytes(null)).toBeNull()
+    expect(toPcmBytes([])).toBeNull()
+    expect(toPcmBytes('')).toBeNull()
+    expect(toPcmBytes({ a: 'x' })).toBeNull()
   })
 })
