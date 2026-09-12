@@ -46,10 +46,13 @@ function isAnimatedState(state: State): boolean {
     case 'transcribing':
     case 'thinking':
       return true
-    case 'displaying':
-      return state.streaming || state.toolLabel !== null
+    case 'idle': {
+      if (state.loading || state.streaming || state.toolLabel) return true
+      const reply = state.reply ?? ''
+      // 打字机还没追平(流式已结束但 reveal 仍在推进)
+      return reply.length > 0 && (state.reveal ?? reply.length) < reply.length
+    }
     case 'home':
-    case 'idle':
       return !!state.loading
     default:
       return false
@@ -173,7 +176,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
     const st = document.getElementById('phone-status');
     const btn = document.getElementById('phone-send') as HTMLButtonElement | null;
     if (!st) return;
-    const active = s.kind === 'idle' || s.kind === 'displaying';
+    const active = s.kind === 'idle';
     if (active) st.textContent = (s as { crumb?: string }).crumb || (isZh ? '当前会话' : 'session');
     else if (s.kind === 'home') st.textContent = isZh ? '先在眼镜端选择一个会话' : 'pick a session on glasses first';
     else st.textContent = s.kind;
@@ -470,11 +473,13 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
     }
   }
 
-  // 3.5 打字机定时器:displaying 时按 ~40ms 推进 reveal(平滑逐字)
+  // 3.5 打字机定时器:历史页(含流式)按 ~40ms 推进 reveal(平滑逐字)
   const revealTimer = setInterval(() => {
-    if (state.kind !== 'displaying') return
-    const rev = (state as { reveal?: number }).reveal
-    if (rev == null || rev < state.reply.length) dispatch({ kind: 'reveal' })
+    if (state.kind !== 'idle') return
+    const reply = state.reply ?? ''
+    const rev = state.reveal
+    if (rev == null) return
+    if (rev < reply.length) dispatch({ kind: 'reveal' })
   }, REVEAL_TICK_MS)
 
   // 4. Subscribe to bridge events.

@@ -44,12 +44,15 @@ MESSAGES = {
 }
 
 REPLY_DELTAS = [
-    "Three notes from your last sessions:\n\n",
-    "1. The reflow profile finished cleanly - 120 C held for 30 min. ",
-    "2. The SPM scan of sample B looks clean; ",
-    "re-take sample C with a shorter dwell.\n",
-    "3. The paper figures are ready for review - ",
-    "figure 2 was redrawn and figure 4 just needs a caption.",
+    "先按你说的顺序整理。\n\n",
+    "一、烘箱升温曲线:取 120 C 保温 30 分钟那一段,峰值 120.4 C 出现在第 18 分钟,降温阶段与设定一致。",
+    "我把原始日志里的采样点也保留下来了,方便你核对。\n\n",
+    "二、扫描探针:样品 B 表面干净,均方根粗糙度落在常规范围内,台阶边缘清晰;",
+    "样品 C 建议用更短的驻留时间重测,因为上一次扫描时针尖上带了残留物。\n\n",
+    "三、论文图:图 2 已按新的配色重画,图 4 只差图注;",
+    "图注里要提到 0.12 nm 的线宽和 30 A 的阈值,坐标轴标签也已和正文对齐。",
+    "另外我把这一轮的要点写成了三句话的摘要,放在文件开头,你可以直接贴进周报。\n\n",
+    "需要我再把烘箱日志导成 CSV 一起附上吗?",
 ]
 
 
@@ -93,9 +96,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if re.match(r"^/api/sessions/[^/]+/chat/stream$", path):
+        m2 = re.match(r"^/api/sessions/([^/]+)/chat/stream$", path)
+        if m2:
             length = int(self.headers.get("Content-Length") or 0)
-            _ = self.rfile.read(length)
+            body = self.rfile.read(length)
+            try:  # 记录本次提问与回复,使重载历史与真机一致
+                sent = json.loads(body.decode("utf-8", "replace")).get("message", "")
+                if isinstance(sent, list):
+                    sent = " ".join(p.get("text", "") for p in sent if isinstance(p, dict))
+                MESSAGES.setdefault(m2.group(1), []).extend([
+                    {"role": "user", "content": str(sent)},
+                    {"role": "assistant", "content": "".join(REPLY_DELTAS)},
+                ])
+            except Exception as exc:
+                print("[mock] record failed", exc, flush=True)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
