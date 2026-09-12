@@ -37,7 +37,7 @@ export type State =
   | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number }
   | { kind: 'displaying'; conversation: string; transcript: string; reply: string; streaming: boolean; toolLabel: string | null; scrollOffset: number; crumb?: string; desktop?: boolean; reveal?: number }
   | { kind: 'disconnected'; conversation: string }
-  | { kind: 'error'; conversation: string; message: string; lastTranscript: string };
+  | { kind: 'error'; conversation: string; message: string; lastTranscript: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number };
 
 export type Effect =
   | { kind: 'mic_on' }
@@ -85,6 +85,25 @@ export function newConversationName(now: Date, seq: number): string {
   const d = String(now.getUTCDate()).padStart(2, '0');
   const s = String(seq).padStart(2, '0');
   return `g2-${y}-${m}-${d}-${s}`;
+}
+
+/** 回历史页(idle):把会话上下文(历史/面包屑/页号)一并带回去。
+ *  不带这些字段时状态栏会退回 '/'、历史也空 —— 用户看到的"返回根目录并显示 error"就是这么来的。 */
+function backToHistory(
+  state: { conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; histPageFromEnd?: number },
+  extra: Effect[] = [],
+): Transition {
+  return {
+    state: {
+      kind: 'idle',
+      conversation: state.conversation,
+      history: state.history,
+      crumb: state.crumb,
+      desktop: state.desktop,
+      histPageFromEnd: state.histPageFromEnd,
+    },
+    effects: [{ kind: 'render' }, ...extra],
+  };
 }
 
 function scrollUpReset(state: State): Transition {
@@ -342,17 +361,12 @@ export function reduce(state: State, event: Event): Transition {
 
     case 'transcribing':
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
-        return {
-          state: { kind: 'idle', conversation: state.conversation },
-          effects: [{ kind: 'abort_inflight' }, { kind: 'render' }],
-        };
+        return backToHistory(state, [{ kind: 'abort_inflight' }])
       }
       if (event.kind === 'stt_ok') {
         if (!event.text.trim()) {
-          return {
-            state: { kind: 'error', conversation: state.conversation, message: 'Heard nothing.', lastTranscript: '' },
-            effects: [{ kind: 'render' }],
-          };
+          // 没听到内容(用户没说话):直接回历史页,不弹 error(以前会跳 root + error)
+          return backToHistory(state)
         }
         return {
           state: { kind: 'thinking', conversation: state.conversation, transcript: event.text, toolLabel: null, history: state.history, desktop: state.desktop, crumb: state.crumb, histPageFromEnd: state.histPageFromEnd },
@@ -360,10 +374,8 @@ export function reduce(state: State, event: Event): Transition {
         };
       }
       if (event.kind === 'stt_err') {
-        return {
-          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: '' },
-          effects: [{ kind: 'render' }],
-        };
+        // 转写服务失败同样只回历史页(不跳 root、不显示 error)
+        return backToHistory(state)
       }
       return { state, effects: [] };
 
@@ -419,7 +431,7 @@ export function reduce(state: State, event: Event): Transition {
       }
       if (event.kind === 'hermes_err') {
         return {
-          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript },
+          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
           effects: [{ kind: 'render' }],
         };
       }
@@ -491,7 +503,7 @@ export function reduce(state: State, event: Event): Transition {
       }
       if (state.streaming && event.kind === 'hermes_err') {
         return {
-          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript },
+          state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
           effects: [{ kind: 'render' }],
         };
       }
@@ -501,14 +513,14 @@ export function reduce(state: State, event: Event): Transition {
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         if (state.lastTranscript) {
           return {
-            state: { kind: 'thinking', conversation: state.conversation, transcript: state.lastTranscript, toolLabel: null },
+            state: { kind: 'thinking', conversation: state.conversation, transcript: state.lastTranscript, toolLabel: null, history: state.history, crumb: state.crumb, desktop: state.desktop, histPageFromEnd: state.histPageFromEnd },
             effects: [
               { kind: 'send', conversation: state.conversation, transcript: state.lastTranscript },
               { kind: 'render' },
             ],
           };
         }
-        return { state: { kind: 'idle', conversation: state.conversation }, effects: [{ kind: 'render' }] };
+        return backToHistory(state)
       }
       return { state, effects: [] };
   }
