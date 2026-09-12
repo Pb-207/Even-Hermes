@@ -18,6 +18,7 @@ from fastapi import FastAPI, File, UploadFile, WebSocket
 PORT = int(os.environ.get("MOCK_STT_PORT", "8798"))
 PARTIALS = ["今天的", "今天的实验", "今天的实验做完了"]
 FINAL = "今天的实验做完了,请汇总成一份小结"
+TURN = 0   # 每次连接 +1,并把轮次写进文案,方便肉眼区分是第几轮
 
 app = FastAPI()
 
@@ -33,6 +34,9 @@ async def rest_transcribe(file: UploadFile = File(...)):
 async def ws_stt(websocket: WebSocket, path: str):
     await websocket.accept()
     print(f"[mock-stt] ws connected path=/{path}", flush=True)
+    global TURN
+    TURN += 1
+    tag = f"[第{TURN}轮] "
     frames = 0
     sent = 0
     last_partial = time.monotonic()
@@ -44,7 +48,7 @@ async def ws_stt(websocket: WebSocket, path: str):
                 print(f"[mock-stt] silence -> FINAL (frames={frames})", flush=True)
                 await websocket.send_text(json.dumps({
                     "type": "Results", "is_final": True,
-                    "channel": {"alternatives": [{"transcript": FINAL}]},
+                    "channel": {"alternatives": [{"transcript": tag + FINAL}]},
                 }))
                 break
             if m.get("type") == "websocket.disconnect":
@@ -60,7 +64,7 @@ async def ws_stt(websocket: WebSocket, path: str):
                     print(f"[mock-stt] PARTIAL {text!r}", flush=True)
                     await websocket.send_text(json.dumps({
                         "type": "Results", "is_final": False,
-                        "channel": {"alternatives": [{"transcript": text}]},
+                        "channel": {"alternatives": [{"transcript": tag + text}]},
                     }))
                 continue
             raw = m.get("text") or ""

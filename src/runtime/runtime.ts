@@ -332,6 +332,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
           const text = await transcribe(config.stt, wav, inflight.signal)
           dispatch({ kind: 'stt_ok', text })
         } catch (err) {
+          if ((err as Error)?.name === 'AbortError') return   // 用户打断,不是错误
           const msg = err instanceof SttError ? err.message : 'stt error'
           dispatch({ kind: 'stt_err', message: msg })
         } finally {

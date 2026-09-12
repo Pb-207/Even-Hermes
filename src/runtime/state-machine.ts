@@ -121,6 +121,16 @@ function scrollUpReset(state: State): Transition {
 }
 
 export function reduce(state: State, event: Event): Transition {
+  const __t = reduceInner(state, event)
+  const __b = state.kind + ((state as { streaming?: boolean }).streaming ? '+streaming' : '')
+  const __a = __t.state.kind + ((__t.state as { streaming?: boolean }).streaming ? '+streaming' : '')
+  if (event.kind !== 'reveal' && (__b !== __a || event.kind.startsWith('stt_') || event.kind === 'hermes_ok')) {
+    console.log('[sm]', __b, '->', __a, event.kind)
+  }
+  return __t
+}
+
+function reduceInner(state: State, event: Event): Transition {
 
   // Device disconnect is universal — drop everything in flight.
   if (event.kind === 'device_disconnected') {
@@ -346,9 +356,12 @@ export function reduce(state: State, event: Event): Transition {
           state: {
             kind: 'recording', conversation: state.conversation, startedAt: Date.now(),
             history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor,
-            // 带着已流出的内容进录音:否则"双击的第一拍(单击)"会把刚看到的回复从视图里抹掉
-            transcript: state.transcript, reply: state.reply,
-            reveal: state.reply ? state.reply.length : state.reveal,
+            // 只有"正在流式时被打断"才需要把已流出的回复带进录音态,否则那半截回复会从视图里消失。
+            // 上一轮已经结束的情况不能带:视图跟随末尾,带着旧回复会把新一轮的实时 partial 顶到可视页之外
+            // —— 表现为"说话时画面毫无变化,以为没在转写"。transcript 同理必须清掉。
+            transcript: undefined, partial: undefined,
+            reply: state.streaming ? state.reply : undefined,
+            reveal: state.streaming && state.reply ? state.reply.length : undefined,
             streaming: false, toolMarks: state.toolMarks,
           },
           effects: fx,
@@ -400,7 +413,7 @@ export function reduce(state: State, event: Event): Transition {
       }
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, partial: state.partial, reply: state.reply, reveal: state.reveal, toolMarks: state.toolMarks },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.partial ?? state.transcript, partial: state.partial, reply: state.reply, reveal: state.reveal, toolMarks: state.toolMarks },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }

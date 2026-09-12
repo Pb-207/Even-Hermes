@@ -50,3 +50,20 @@ describe('工具行按发生位置插入', () => {
     expect(i('· [tool] b')).toBeLessThan(i('second.'))
   })
 })
+
+describe('录音态:转写行必须最后(否则被旧回复顶出可视页)', () => {
+  it('transcriptLast=true 时,转写行排在回复之后', () => {
+    const rows = viewRows(undefined, {
+      transcript: '今天的实验',
+      reply: '这是上一轮的回复,很长很长很长',
+      transcriptLast: true,
+    })
+    const iT = rows.findIndex((r) => r.includes('今天的实验'))
+    const iR = rows.findIndex((r) => r.includes('这是上一轮的回复'))
+    expect(iT).toBeGreaterThan(iR)
+  })
+  it('默认(流式/正常)保持 请求 → 回复 的顺序', () => {
+    const rows = viewRows(undefined, { transcript: 'q', reply: 'a' })
+    expect(rows.findIndex((r) => r.includes('q'))).toBeLessThan(rows.findIndex((r) => r.includes('a')))
+  })
+})
