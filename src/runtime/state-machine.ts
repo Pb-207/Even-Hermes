@@ -2,6 +2,9 @@ import type { TurnEntry } from './history';
 import { viewRows, pageWindow, PAGE_ROWS } from './history-view';
 import type { HermesMessage } from './hermes';
 
+/** 流式过程中一次工具调用:label + 它发生时的回复长度(用于插回正确位置) */
+export type ToolMark = { label: string; at: number };
+
 export type Gesture = 'TAP' | 'SCROLL_UP' | 'SCROLL_DOWN' | 'DOUBLE_CLICK';
 
 export type HomeItem =
@@ -33,13 +36,13 @@ export type Event =
 export type State =
   | { kind: 'home'; conversation: string; view: 'root' | 'folder' | 'desktop'; items: HomeItem[]; selectedIdx: number; loading?: boolean; confirmDelete?: boolean }
   | { kind: 'idle'; conversation: string; history?: HermesMessage[]; loading?: boolean; crumb?: string; desktop?: boolean;
-      rowAnchor?: number | null; transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+      rowAnchor?: number | null; transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolMarks?: ToolMark[] }
   | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
-      transcript?: string; partial?: string; timedOut?: boolean; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+      transcript?: string; partial?: string; timedOut?: boolean; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolMarks?: ToolMark[] }
   | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
-      transcript?: string; partial?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+      transcript?: string; partial?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolMarks?: ToolMark[] }
   | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
-      reply?: string; reveal?: number; streaming?: boolean; toolNotes?: string[] }
+      reply?: string; reveal?: number; streaming?: boolean; toolMarks?: ToolMark[] }
   | { kind: 'disconnected'; conversation: string }
   | { kind: 'error'; conversation: string; message: string; lastTranscript: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null };
 
@@ -182,22 +185,28 @@ export function reduce(state: State, event: Event): Transition {
   //  - `home`: 滑动移动菜单光标(在 switch 里处理)
   //  - `idle`(含流式视图): 整段分页显示 —— SCROLL_UP 往更旧一页、SCROLL_DOWN 往更新一页,
   //    滚回最末页则恢复「跟随末尾」,于是流式内容超出时会自动翻页。
+  const pagedState = state.kind === 'idle' || state.kind === 'recording'
+    || state.kind === 'transcribing' || state.kind === 'thinking';
   if (event.kind === 'gesture' && (event.gesture === 'SCROLL_UP' || event.gesture === 'SCROLL_DOWN')
-      && state.kind === 'idle') {
-    const rows = viewRows(state.history, { transcript: state.transcript, reply: state.reply, reveal: state.reveal })
+      && pagedState) {
+    const st = state as { history?: HermesMessage[]; transcript?: string; partial?: string; reply?: string; reveal?: number; rowAnchor?: number | null; toolMarks?: ToolMark[] }
+    const rows = viewRows(st.history, { transcript: st.transcript ?? st.partial, reply: st.reply, reveal: st.reveal, toolMarks: st.toolMarks })
+    const cur = st.rowAnchor ?? null
     if (rows.length) {
-      const cur = state.rowAnchor ?? null
       const { start, pages } = pageWindow(rows.length, cur)
-      if (pages === 1) return { state, effects: [] } // 只有一页:滚动不做任何事
-      const lastStart = (pages - 1) * PAGE_ROWS
-      const next = event.gesture === 'SCROLL_UP'
-        ? Math.max(0, start - PAGE_ROWS)
-        : (start + PAGE_ROWS >= lastStart ? null : start + PAGE_ROWS)
-      if (next !== cur && !(cur === null && next === lastStart)) {
-        return { state: { ...state, rowAnchor: next }, effects: [{ kind: 'render' }] }
+      if (pages > 1) {
+        const lastStart = (pages - 1) * PAGE_ROWS
+        const next = event.gesture === 'SCROLL_UP'
+          ? Math.max(0, start - PAGE_ROWS)
+          : (start + PAGE_ROWS >= lastStart ? null : start + PAGE_ROWS)
+        if (next !== cur && !(cur === null && next === lastStart)) {
+          return { state: { ...state, rowAnchor: next }, effects: [{ kind: 'render' }] }
+        }
       }
-      return { state, effects: [] }
     }
+    // 只有一页 / 没有内容:滚动是 no-op(不能落到 scrollUpReset —— 那会丢掉 crumb/desktop,
+    // 表现为"新建会话后上滑,状态栏回到根目录")
+    return { state, effects: [] }
   }
   if (event.kind === 'gesture' && event.gesture === 'SCROLL_UP'
       && state.kind !== 'home') {
@@ -339,7 +348,7 @@ export function reduce(state: State, event: Event): Transition {
             // 带着已流出的内容进录音:否则"双击的第一拍(单击)"会把刚看到的回复从视图里抹掉
             transcript: state.transcript, reply: state.reply,
             reveal: state.reply ? state.reply.length : state.reveal,
-            streaming: false, toolNotes: state.toolNotes,
+            streaming: false, toolMarks: state.toolMarks,
           },
           effects: fx,
         };
@@ -356,9 +365,13 @@ export function reduce(state: State, event: Event): Transition {
         return { state: { ...state, reply: (state.reply ?? '') + event.text }, effects: [{ kind: 'render' }] };
       }
       if (state.streaming && event.kind === 'hermes_tool') {
-        const prev = state.toolNotes ?? [];
-        const notes = prev.length && prev[prev.length - 1] === event.label ? prev : [...prev, event.label];
-        return { state: { ...state, toolLabel: event.label, toolNotes: notes }, effects: [{ kind: 'render' }] };
+        const prev = state.toolMarks ?? [];
+        const label = (event.label ?? '').trim();
+        // label 为空 = 工具结束事件,忽略;连续同名只留一条
+        const marks = !label || (prev.length && prev[prev.length - 1].label === label)
+          ? prev
+          : [...prev, { label, at: (state.reply ?? '').length }];
+        return { state: { ...state, toolLabel: event.label, toolMarks: marks }, effects: [{ kind: 'render' }] };
       }
       if (state.streaming && event.kind === 'hermes_ok') {
         return { state: { ...state, streaming: false, reply: event.text, toolLabel: null }, effects: [{ kind: 'render' }] };
@@ -378,7 +391,7 @@ export function reduce(state: State, event: Event): Transition {
       }
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, partial: state.partial, reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, partial: state.partial, reply: state.reply, reveal: state.reveal, toolMarks: state.toolMarks },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
@@ -418,7 +431,7 @@ export function reduce(state: State, event: Event): Transition {
           state: {
             kind: 'idle', conversation: state.conversation, history: state.history, desktop: state.desktop,
             crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript,
-            reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes,
+            reply: state.reply, reveal: state.reveal, toolMarks: state.toolMarks,
           },
           effects: [{ kind: 'abort_inflight' }, { kind: 'render' }],
         };
@@ -432,7 +445,7 @@ export function reduce(state: State, event: Event): Transition {
             reply: event.text,
             streaming: true,
             toolLabel: state.toolLabel,
-            toolNotes: state.toolNotes,
+            toolMarks: state.toolMarks,
             reveal: 0,
             desktop: state.desktop,
             history: state.history,
@@ -442,9 +455,13 @@ export function reduce(state: State, event: Event): Transition {
         };
       }
       if (event.kind === 'hermes_tool') {
-        const prev = state.toolNotes ?? [];
-        const notes = prev.length && prev[prev.length - 1] === event.label ? prev : [...prev, event.label];
-        return { state: { ...state, toolLabel: event.label, toolNotes: notes }, effects: [{ kind: 'render' }] };
+        const prev = state.toolMarks ?? [];
+        const label = (event.label ?? '').trim();
+        // label 为空 = 工具结束事件,忽略;连续同名只留一条
+        const marks = !label || (prev.length && prev[prev.length - 1].label === label)
+          ? prev
+          : [...prev, { label, at: (state.reply ?? '').length }];
+        return { state: { ...state, toolLabel: event.label, toolMarks: marks }, effects: [{ kind: 'render' }] };
       }
       if (event.kind === 'hermes_ok') {
         // 进入 B 页面(displaying):顶部显示识别文本,下方显示最新回复

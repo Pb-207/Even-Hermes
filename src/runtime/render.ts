@@ -2,6 +2,7 @@ import { TextContainerUpgrade } from '@evenrealities/even_hub_sdk';
 import type { State, HomeItem } from './state-machine';
 import type { HermesMessage } from './hermes';
 import { stripMarkdown } from './markdown-strip'
+import type { ToolMark } from './state-machine'
 import { viewRows, pageWindow, pageTextAt } from './history-view';
 
 export const MAX_MAIN_CHARS = 950;
@@ -81,8 +82,8 @@ export function statusLine(state: State, tickIndex = 0): string {
 export function footerHint(state: State): string {
   // 历史页(含流式)翻页提示:仅在分页多于 1 页时显示
   if (state.kind === 'idle' || state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking') {
-    const st = state as { history?: HermesMessage[]; transcript?: string; partial?: string; reply?: string; reveal?: number; rowAnchor?: number | null; toolNotes?: string[] };
-    const rows = viewRows(st.history, { transcript: st.transcript ?? st.partial, reply: st.reply, reveal: st.reveal, toolNotes: st.toolNotes });
+    const st = state as { history?: HermesMessage[]; transcript?: string; partial?: string; reply?: string; reveal?: number; rowAnchor?: number | null; toolMarks?: ToolMark[] };
+    const rows = viewRows(st.history, { transcript: st.transcript ?? st.partial, reply: st.reply, reveal: st.reveal, toolMarks: st.toolMarks });
     if (rows.length) {
       const { pages, index } = pageWindow(rows.length, st.rowAnchor ?? null);
       if (pages > 1) {
@@ -137,8 +138,8 @@ function menuWindow(items: HomeItem[], sel: number): string {
 
 // 历史页(含流式回复)当前页文本:同一套展开/分页规则 —— 流式不再截断,超出自动翻页。
 function viewText(state: State): string {
-  const st = state as { history?: HermesMessage[]; transcript?: string; partial?: string; reply?: string; reveal?: number; rowAnchor?: number | null; toolNotes?: string[] };
-  const rows = viewRows(st.history, { transcript: st.transcript ?? st.partial, reply: st.reply, reveal: st.reveal, toolNotes: st.toolNotes });
+  const st = state as { history?: HermesMessage[]; transcript?: string; partial?: string; reply?: string; reveal?: number; rowAnchor?: number | null; toolMarks?: ToolMark[] };
+  const rows = viewRows(st.history, { transcript: st.transcript ?? st.partial, reply: st.reply, reveal: st.reveal, toolMarks: st.toolMarks });
   if (!rows.length) return '';
   const { start } = pageWindow(rows.length, st.rowAnchor ?? null);
   return pageTextAt(rows, start);

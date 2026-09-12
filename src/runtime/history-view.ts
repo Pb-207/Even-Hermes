@@ -1,4 +1,5 @@
 import type { HermesMessage } from './hermes'
+import type { ToolMark } from './state-machine'
 import { stripMarkdown } from './markdown-strip'
 
 /**
@@ -96,7 +97,8 @@ export function historyRows(h: HermesMessage[] | undefined): Row[] {
       if (folded) rows.push('· ' + clampUnits(folded, ROW_UNITS - 2))
       continue
     }
-    const prefix = m.role === 'assistant' ? 'Hermes: ' : '> '
+    const prefix = m.role === 'assistant' ? 'Hermes: '
+      : m.role === 'assistantMore' ? ' '.repeat('Hermes: '.length) : '> '
     const indent = ' '.repeat(prefix.length)
     const width = Math.max(16, ROW_UNITS - unitsOf(prefix))
     const lines = String(m.text ?? '').replace(/\r/g, '').split('\n')
@@ -164,19 +166,28 @@ export function pageTextAt(rows: string[], start: number): string {
  */
 export function viewRows(
   h: HermesMessage[] | undefined,
-  opts: { transcript?: string; reply?: string; reveal?: number; toolNotes?: string[] } = {},
+  opts: { transcript?: string; reply?: string; reveal?: number; toolMarks?: ToolMark[] } = {},
 ): string[] {
   const msgs: HermesMessage[] = [...(h ?? [])]
   const t = (opts.transcript ?? '').trim()
   if (t) msgs.push({ role: 'user', text: t })
-  // 本次的工具调用/思考:折叠成一行一条,排在请求之后、回复之前
-  for (const note of opts.toolNotes ?? []) {
-    if (note && note.trim()) msgs.push({ role: 'meta', text: '[tool] ' + note.trim() })
-  }
   const full = opts.reply ?? ''
-  if (full) {
-    const n = opts.reveal == null ? full.length : Math.max(0, Math.min(full.length, opts.reveal))
-    if (n > 0) msgs.push({ role: 'assistant', text: full.slice(0, n) })
+  const n = opts.reveal == null ? full.length : Math.max(0, Math.min(full.length, opts.reveal))
+  // 工具调用按「发生位置」插进回复里:一轮里 工具→文本→工具→文本 的顺序不会被拉平
+  // (旧实现把工具放在一个单独列表里、整体排在回复之前,于是新的工具调用看起来"加在了前面")
+  const marks = [...(opts.toolMarks ?? [])].sort((a, b) => a.at - b.at)
+  let cursor = 0
+  let first = true
+  for (const m of marks) {
+    const at = Math.max(0, Math.min(n, m.at))
+    if (at > cursor) {
+      msgs.push({ role: first ? 'assistant' : 'assistantMore', text: full.slice(cursor, at) })
+      first = false
+      cursor = at
+    }
+    const label = (m.label ?? '').trim()
+    if (label && m.at <= n) msgs.push({ role: 'meta', text: '[tool] ' + label })
   }
+  if (n > cursor) msgs.push({ role: first ? 'assistant' : 'assistantMore', text: full.slice(cursor, n) })
   return historyRows(msgs)
 }

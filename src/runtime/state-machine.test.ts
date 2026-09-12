@@ -36,10 +36,10 @@ describe('reduce — idle', () => {
     expect(t.state.kind).toBe('recording');
     expect(kinds(t.effects)).toEqual(['mic_on', 'render']);
   });
-  it('SCROLL_UP requests a new conversation', () => {
+  it('SCROLL_UP in idle is a no-op (翻页交给分页逻辑;绝不能重开新会话)', () => {
     const t = reduce(idle, { kind: 'gesture', gesture: 'SCROLL_UP' });
     expect(t.state.kind).toBe('idle');
-    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'new_conversation', 'render']);
+    expect(kinds(t.effects)).toEqual([]);
   });
   it('DOUBLE_CLICK from idle goes back to the session list', () => {
     const t = reduce(idle, { kind: 'gesture', gesture: 'DOUBLE_CLICK' });
@@ -77,10 +77,10 @@ describe('reduce — recording', () => {
     expect(t.state.kind).toBe('transcribing');
     expect(kinds(t.effects)).toEqual(['mic_off', 'transcribe', 'render']);
   });
-  it('SCROLL_UP aborts and goes to idle/new', () => {
+  it('SCROLL_UP does not abort the turn (历史类状态一律不重置)', () => {
     const t = reduce(recording, { kind: 'gesture', gesture: 'SCROLL_UP' });
-    expect(t.state.kind).toBe('idle');
-    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'new_conversation', 'render']);
+    expect(t.state.kind).toBe('recording');
+    expect(kinds(t.effects)).toEqual([]);
   });
 });
 
@@ -243,10 +243,10 @@ describe('reduce — thinking', () => {
       expect(t.state.lastTranscript).toBe('hello');
     }
   });
-  it('SCROLL_UP aborts and goes to idle/new', () => {
+  it('SCROLL_UP does not abort the turn (历史类状态一律不重置)', () => {
     const t = reduce(thinking, { kind: 'gesture', gesture: 'SCROLL_UP' });
-    expect(t.state.kind).toBe('idle');
-    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'new_conversation', 'render']);
+    expect(t.state.kind).toBe('thinking');
+    expect(kinds(t.effects)).toEqual([]);
   });
 });
 
@@ -256,11 +256,12 @@ describe('reduce — idle', () => {
     expect(t.state.kind).toBe('recording');
     expect(kinds(t.effects)).toEqual(['mic_on', 'render']);
   });
-  it('SCROLL_UP with no history falls through to the legacy "new conversation"', () => {
-    // 分页只在有内容时接管;空历史仍走通用逻辑(滚上=新会话)
+  it('SCROLL_UP with no history keeps the crumb (新建会话后上滑不能回到根目录)', () => {
+    // 旧实现:空历史时穿过分页分支 → scrollUpReset → crumb/desktop 丢失,状态栏变 '/'
     const t = reduce(idle, { kind: 'gesture', gesture: 'SCROLL_UP' });
     expect(t.state.kind).toBe('idle');
-    expect(kinds(t.effects)).toEqual(['mic_off', 'abort_inflight', 'new_conversation', 'render']);
+    expect(kinds(t.effects)).toEqual([]);
+    expect((t.state as unknown as { crumb?: string }).crumb).toBe((idle as unknown as { crumb?: string }).crumb);
   });
 });
 

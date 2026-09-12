@@ -50,7 +50,8 @@ export async function listSessions(cfg: HermesConfig): Promise<HermesSession[]> 
     }))
 }
 
-export type HermesMessage = { role: 'user' | 'assistant' | 'meta'; text: string };
+// 'assistantMore' = 同一条回复被工具调用打断后的续行(不再重复 'Hermes: ' 前缀)
+export type HermesMessage = { role: 'user' | 'assistant' | 'assistantMore' | 'meta'; text: string };
 
 function messageText(content: unknown): string {
   if (typeof content === 'string') return content;

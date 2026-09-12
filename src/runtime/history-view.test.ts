@@ -17,7 +17,7 @@ describe('viewRows (history + streaming turn)', () => {
   })
 
   it('folds tool notes into single meta rows, between request and reply', () => {
-    const rows = viewRows(hist, { transcript: 'summarise notes', reply: 'ok', toolNotes: ['thinking', 'running terminal'] })
+    const rows = viewRows(hist, { transcript: 'summarise notes', reply: 'ok', toolMarks: [{ label: 'thinking', at: 0 }, { label: 'running terminal', at: 0 }] })
     expect(rows.filter((r) => r.startsWith('· '))).toEqual(['· [tool] thinking', '· [tool] running terminal'])
     const qi = rows.findIndex((r) => r.includes('summarise notes'))
     const mi = rows.findIndex((r) => r === '· [tool] thinking')
@@ -33,5 +33,20 @@ describe('viewRows (history + streaming turn)', () => {
     const { pages, start } = pageWindow(rows.length, null)
     expect(pages).toBeGreaterThan(1)
     expect(rows.slice(start, start + PAGE_ROWS).length).toBeLessThanOrEqual(PAGE_ROWS)
+  })
+})
+
+describe('工具行按发生位置插入', () => {
+  it('工具→文本→工具→文本:第二条工具行留在两段文本之间', () => {
+    const rows = viewRows(undefined, {
+      transcript: 'q',
+      reply: 'first. second.',
+      toolMarks: [{ label: 'a', at: 0 }, { label: 'b', at: 'first. '.length }],
+    })
+    const i = (n: string) => rows.findIndex((r) => r.includes(n))
+    expect(i('· [tool] a')).toBeGreaterThan(-1)
+    expect(i('· [tool] a')).toBeLessThan(i('first.'))
+    expect(i('first.')).toBeLessThan(i('· [tool] b'))
+    expect(i('· [tool] b')).toBeLessThan(i('second.'))
   })
 })
