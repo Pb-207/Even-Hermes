@@ -7,8 +7,6 @@
 import { saveConfig, type StorageLike } from './config'
 
 export const MOCK_BASE = 'http://127.0.0.1:8799'
-/** 流式 STT 的 mock(WS + REST 同一端口,见 scripts/mock-stt.py) */
-export const MOCK_STT = 'http://127.0.0.1:8798'
 
 export function isDemoMode(): boolean {
   try {
@@ -22,7 +20,7 @@ export function isDemoMode(): boolean {
 export async function seedDemoConfig(storage: StorageLike): Promise<void> {
   await saveConfig(storage, {
     hermes: { baseUrl: MOCK_BASE, apiKey: 'demo', model: 'demo-model', instructions: '' },
-    stt: { baseUrl: MOCK_STT, apiKey: 'demo', model: 'demo' },
+    stt: { baseUrl: MOCK_BASE, apiKey: 'demo', model: 'demo' },
     session: { lastName: 'demo', labels: ['demo'] },
     lang: 'zh',
   })

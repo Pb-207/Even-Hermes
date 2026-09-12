@@ -72,37 +72,3 @@ export class PcmRecorder {
     return out
   }
 }
-
-/**
- * 归一化宿主送来的音频帧。
- *
- * SDK 文档写明:`audioPcm` 是宿主侧的 `Uint8List`,经 JSON 序列化后**多为 `number[]`
- * 或 base64 字符串**(见 SDK 的 EvenHubEvent 注释)。真机上实测不是 `Uint8Array`,
- * 早先只用 `instanceof Uint8Array` 判断会把**每一帧都丢掉**,表现为"录音没有任何声音"。
- * 这里把三种形态统一成字节。
- */
-export function toPcmBytes(raw: unknown): Uint8Array | null {
-  if (raw instanceof Uint8Array) return raw
-  if (Array.isArray(raw)) {
-    if (!raw.length) return null
-    return Uint8Array.from(raw as number[])
-  }
-  if (typeof raw === 'string') {
-    if (!raw) return null
-    try {
-      const bin = atob(raw)
-      const out = new Uint8Array(bin.length)
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-      return out
-    } catch {
-      return null
-    }
-  }
-  if (raw && typeof raw === 'object') {
-    const vals = Object.values(raw as Record<string, unknown>)
-    if (vals.length && vals.every((v) => typeof v === 'number')) {
-      return Uint8Array.from(vals as number[])
-    }
-  }
-  return null
-}
