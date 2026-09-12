@@ -179,9 +179,12 @@ function reduceInner(state: State, event: Event): Transition {
         effects: [{ kind: 'reload_sessions' }, { kind: 'render' }],
       };
     }
-    if (state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking') {
-      // 进行中(录音/转写/思考)双击 = 退一层:直接回会话列表(真机上"双击"会先送来一次单击,
-      // 若这里只回历史页,用户会看到"停在历史页、刚流出的内容消失")
+    if (state.kind === 'recording' || state.kind === 'transcribing') {
+      // 语音转写中双击 = 取消:停麦 + 中断转写,回到**当前会话的历史页**(不回会话列表/根目录)
+      return backToHistory(state, [{ kind: 'mic_off' }, { kind: 'abort_inflight' }]);
+    }
+    if (state.kind === 'thinking') {
+      // 请求已经发出(在流式)时双击仍退一层到会话列表,避免看到"半截回复"
       return backToHome(state);
     }
     return backToHome(state);
