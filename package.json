@@ -1,0 +1,25 @@
+{
+  "name": "hermes-lens",
+  "private": true,
+  "version": "0.4.2",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "check:release": "node scripts/check-release.mjs",
+    "release": "vite build && node scripts/check-release.mjs && evenhub pack app.json dist -o hermes-lens.ehpk --sdk-ver 0.0.15"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.14",
+    "@evenrealities/evenhub-simulator": "^0.7.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.12",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.15"
+  }
+}
