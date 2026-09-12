@@ -59,8 +59,21 @@ describe('reduce — recording', () => {
     expect(t.state.kind).toBe('transcribing');
     expect(kinds(t.effects)).toEqual(['mic_off', 'transcribe', 'render']);
   });
-  it('recording_timeout behaves like TAP', () => {
+  it('recording_timeout stops the mic but does not send (send stays tap-confirmed)', () => {
     const t = reduce(recording, { kind: 'recording_timeout' });
+    expect(t.state.kind).toBe('recording');
+    expect((t.state as { timedOut?: boolean }).timedOut).toBe(true);
+    expect(kinds(t.effects)).toEqual(['mic_off', 'render']);
+  });
+  it('stt_partial updates the pending request line without leaving recording', () => {
+    const t = reduce(recording, { kind: 'stt_partial', text: '今天的实验' });
+    expect(t.state.kind).toBe('recording');
+    expect((t.state as { partial?: string }).partial).toBe('今天的实验');
+    expect(kinds(t.effects)).toEqual(['render']);
+  });
+  it('TAP after a timeout still sends the buffered audio', () => {
+    const timedOut = reduce(recording, { kind: 'recording_timeout' }).state;
+    const t = reduce(timedOut, { kind: 'gesture', gesture: 'TAP' });
     expect(t.state.kind).toBe('transcribing');
     expect(kinds(t.effects)).toEqual(['mic_off', 'transcribe', 'render']);
   });
@@ -283,7 +296,7 @@ describe('reduce — disconnected', () => {
 });
 
 describe('reduce — universal device_disconnected', () => {
-  const states = { idle, recording, transcribing, thinking, idle, error };
+  const states = { idle, recording, transcribing, thinking, error };
   for (const name of Object.keys(states) as Array<keyof typeof states>) {
     it(`from ${name} → disconnected`, () => {
       const t = reduce(states[name], { kind: 'device_disconnected' });

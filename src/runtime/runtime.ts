@@ -18,7 +18,7 @@ const STREAM_FLUSH_MS = 100
 // 打字机揭示间隔(ms):每拍 reveal 前进 step 个字符;调大 = 更慢
 const REVEAL_TICK_MS = 40
 import { PcmRecorder, MIN_USEFUL_BYTES, pcmToWav } from './audio'
-import { transcribe, SttError } from './stt'
+import { transcribe, openSttStream, SttError, type SttStream } from './stt'
 import { streamRespond, listSessions, getSessionMessages, sessionChat, sessionChatStream, deleteSession, createSession, HermesError } from './hermes'
 import { appendTurn, loadHistory, type TurnEntry } from './history'
 import type { HomeItem } from './state-machine'
@@ -208,6 +208,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
   const recorder = new PcmRecorder()
   let inflight: AbortController | null = null
   let recordingTimer: ReturnType<typeof setTimeout> | null = null
+  let sttStream: SttStream | null = null // 流式转写(不可用时回落 REST)
   let errorClearTimer: ReturnType<typeof setTimeout> | null = null
   let animationTimer: ReturnType<typeof setInterval> | null = null
   let tickIndex = 0
@@ -284,6 +285,10 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
     switch (e.kind) {
       case 'mic_on': {
         recorder.reset()
+        sttStream?.close()
+        sttStream = openSttStream(config.stt, {
+          onPartial: (text) => { void dispatch({ kind: 'stt_partial', text }) },
+        })
         await bridge.audioControl(true)
         if (recordingTimer) clearTimeout(recordingTimer)
         recordingTimer = setTimeout(() => dispatch({ kind: 'recording_timeout' }), RECORDING_TIMEOUT_MS)
@@ -296,9 +301,23 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
       }
       case 'transcribe': {
         if (recorder.bytes() < MIN_USEFUL_BYTES) {
+          sttStream?.close()
+          sttStream = null
           dispatch({ kind: 'stt_ok', text: '' })
           return
         }
+        // 流式:停止推流后等服务端 FINAL(它按 ~0.7s 静音判定),拿到就直接用
+        if (sttStream) {
+          const streamed = await sttStream.finish(1800)
+          sttStream.close()
+          sttStream = null
+          if (streamed && streamed.trim()) {
+            recorder.reset()
+            dispatch({ kind: 'stt_ok', text: streamed.trim() })
+            return
+          }
+        }
+        // 回落:OpenAI 兼容的整段 REST 转写
         const wav = pcmToWav(recorder.flatten(), { sampleRate: 16000, channels: 1, bitsPerSample: 16 })
         recorder.reset()
         inflight = new AbortController()
@@ -488,6 +507,7 @@ export async function startRuntime(opts: RuntimeOptions): Promise<void> {
       const pcm = evt.audioEvent.audioPcm
       if (pcm instanceof Uint8Array) {
         recorder.append(pcm)
+        sttStream?.send(pcm)
       }
       return
     }
