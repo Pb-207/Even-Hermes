@@ -22,7 +22,16 @@ MESSAGES = {
     "demo-1": [
         {"role": "user", "content": "Did the oven re-run finish cleanly?"},
         {"role": "assistant", "content": "Yes - the profile ran to completion. Peak 120 C held for 30 minutes, cool-down on schedule."},
-        {"role": "user", "content": "And the SPM scan?"},
+        {"role": "user", "content": "And the SPM scan of sample B?"},
+        {"role": "assistant", "content": "Sample B looks clean: no streaks, roughness is within the usual range, and the step edges are sharp. I would still re-take sample C with a shorter dwell because the tip picked up some residue from the previous scan."},
+        {"role": "user", "content": "Fine. What about the figures for the paper?"},
+        {"role": "assistant", "content": "Figure 2 was redrawn with the new colour scale; figure 4 only needs a caption that mentions the 0.12 nm linewidth and the 30 A threshold. I also re-checked the axis labels so they match the text."},
+        {"role": "user", "content": "Good, and remind me of the meeting time."},
+        {"role": "assistant", "content": "The group meeting is Thursday at 14:00 in the small seminar room. I put the slides and the sample list in the shared folder."},
+        {"role": "user", "content": "Thanks."},
+        {"role": "assistant", "content": "Anytime. Ping me if the reflow logs need a second pair of eyes."},
+        {"role": "user", "content": "顺便把烘箱的升温曲线和扫描探针的结果一起整理成一份中文小结，明早发我。"},
+        {"role": "assistant", "content": "好的：升温曲线取 120°C 保温 30 分钟那一段，扫描探针部分用 B 样品的数据并注明 C 样品需要重测，明早一并发给你。"},
     ],
     "demo-2": [
         {"role": "user", "content": "How did sample B look?"},
