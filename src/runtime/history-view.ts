@@ -164,11 +164,15 @@ export function pageTextAt(rows: string[], start: number): string {
  */
 export function viewRows(
   h: HermesMessage[] | undefined,
-  opts: { transcript?: string; reply?: string; reveal?: number } = {},
+  opts: { transcript?: string; reply?: string; reveal?: number; toolNotes?: string[] } = {},
 ): string[] {
   const msgs: HermesMessage[] = [...(h ?? [])]
   const t = (opts.transcript ?? '').trim()
   if (t) msgs.push({ role: 'user', text: t })
+  // 本次的工具调用/思考:折叠成一行一条,排在请求之后、回复之前
+  for (const note of opts.toolNotes ?? []) {
+    if (note && note.trim()) msgs.push({ role: 'meta', text: '[tool] ' + note.trim() })
+  }
   const full = opts.reply ?? ''
   if (full) {
     const n = opts.reveal == null ? full.length : Math.max(0, Math.min(full.length, opts.reveal))

@@ -125,7 +125,9 @@ class Handler(BaseHTTPRequestHandler):
             frame("run.started", {"run_id": "demo"})
             time.sleep(0.4)
             # 工具阶段 → 状态栏显示 | thinking
-            frame("tool.progress", {"tool_name": "thinking", "detail": "planning the answer"})
+            for tool in ("thinking", "reading files", "running terminal", "thinking"):
+                frame("tool.progress", {"tool_name": tool, "detail": ""})
+                time.sleep(0.35)
             time.sleep(1.2)
             for chunk in REPLY_DELTAS:
                 frame("assistant.delta", {"delta": chunk})

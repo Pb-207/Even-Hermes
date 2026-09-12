@@ -32,10 +32,13 @@ export type Event =
 export type State =
   | { kind: 'home'; conversation: string; view: 'root' | 'folder' | 'desktop'; items: HomeItem[]; selectedIdx: number; loading?: boolean; confirmDelete?: boolean }
   | { kind: 'idle'; conversation: string; history?: HermesMessage[]; loading?: boolean; crumb?: string; desktop?: boolean;
-      rowAnchor?: number | null; transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null }
-  | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null }
-  | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null }
-  | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null }
+      rowAnchor?: number | null; transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+  | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
+      transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+  | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
+      transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+  | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
+      reply?: string; reveal?: number; streaming?: boolean; toolNotes?: string[] }
   | { kind: 'disconnected'; conversation: string }
   | { kind: 'error'; conversation: string; message: string; lastTranscript: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null };
 
@@ -162,11 +165,9 @@ export function reduce(state: State, event: Event): Transition {
       };
     }
     if (state.kind === 'recording' || state.kind === 'transcribing' || state.kind === 'thinking') {
-      // 进行中(录音/转写/思考)→ 取消,回当前会话历史页(保留目录/历史)
-      return {
-        state: { kind: 'idle', conversation: state.conversation, history: state.history, crumb: state.crumb, desktop: state.desktop, rowAnchor: state.rowAnchor },
-        effects: [{ kind: 'mic_off' }, { kind: 'abort_inflight' }, { kind: 'render' }],
-      };
+      // 进行中(录音/转写/思考)双击 = 退一层:直接回会话列表(真机上"双击"会先送来一次单击,
+      // 若这里只回历史页,用户会看到"停在历史页、刚流出的内容消失")
+      return backToHome(state);
     }
     return backToHome(state);
   }
@@ -331,7 +332,14 @@ export function reduce(state: State, event: Event): Transition {
         const fx: Effect[] = state.streaming ? [{ kind: 'abort_inflight' }] : [];
         fx.push({ kind: 'mic_on' }, { kind: 'render' });
         return {
-          state: { kind: 'recording', conversation: state.conversation, startedAt: Date.now(), history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor },
+          state: {
+            kind: 'recording', conversation: state.conversation, startedAt: Date.now(),
+            history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor,
+            // 带着已流出的内容进录音:否则"双击的第一拍(单击)"会把刚看到的回复从视图里抹掉
+            transcript: state.transcript, reply: state.reply,
+            reveal: state.reply ? state.reply.length : state.reveal,
+            streaming: false, toolNotes: state.toolNotes,
+          },
           effects: fx,
         };
       }
@@ -347,7 +355,9 @@ export function reduce(state: State, event: Event): Transition {
         return { state: { ...state, reply: (state.reply ?? '') + event.text }, effects: [{ kind: 'render' }] };
       }
       if (state.streaming && event.kind === 'hermes_tool') {
-        return { state: { ...state, toolLabel: event.label }, effects: [{ kind: 'render' }] };
+        const prev = state.toolNotes ?? [];
+        const notes = prev.length && prev[prev.length - 1] === event.label ? prev : [...prev, event.label];
+        return { state: { ...state, toolLabel: event.label, toolNotes: notes }, effects: [{ kind: 'render' }] };
       }
       if (state.streaming && event.kind === 'hermes_ok') {
         return { state: { ...state, streaming: false, reply: event.text, toolLabel: null }, effects: [{ kind: 'render' }] };
@@ -363,13 +373,13 @@ export function reduce(state: State, event: Event): Transition {
     case 'recording':
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
       if (event.kind === 'recording_timeout') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
@@ -398,7 +408,11 @@ export function reduce(state: State, event: Event): Transition {
     case 'thinking':
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'idle', conversation: state.conversation },
+          state: {
+            kind: 'idle', conversation: state.conversation, history: state.history, desktop: state.desktop,
+            crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript,
+            reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes,
+          },
           effects: [{ kind: 'abort_inflight' }, { kind: 'render' }],
         };
       }
@@ -411,6 +425,7 @@ export function reduce(state: State, event: Event): Transition {
             reply: event.text,
             streaming: true,
             toolLabel: state.toolLabel,
+            toolNotes: state.toolNotes,
             reveal: 0,
             desktop: state.desktop,
             history: state.history,
@@ -420,10 +435,9 @@ export function reduce(state: State, event: Event): Transition {
         };
       }
       if (event.kind === 'hermes_tool') {
-        return {
-          state: { ...state, toolLabel: event.label },
-          effects: [{ kind: 'render' }],
-        };
+        const prev = state.toolNotes ?? [];
+        const notes = prev.length && prev[prev.length - 1] === event.label ? prev : [...prev, event.label];
+        return { state: { ...state, toolLabel: event.label, toolNotes: notes }, effects: [{ kind: 'render' }] };
       }
       if (event.kind === 'hermes_ok') {
         // 进入 B 页面(displaying):顶部显示识别文本,下方显示最新回复
