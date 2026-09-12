@@ -28,3 +28,6 @@ dist-ssr
 
 # local backups (tarballs / old ehpk / patched gateway file)
 backup/
+
+# Python bytecode (dev scripts)
+__pycache__/
