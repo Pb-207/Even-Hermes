@@ -62,7 +62,7 @@ const HINT_Y = 214 + CONTENT_DY
 const LINE_H = 40
 
 const TYPE_START_DELAY_MS = 500
-const TYPE_STEP_MS = 75
+const TYPE_STEP_MS = 45
 const TYPE_HOLD_MS = 350
 const BLINK_MS = 650
 
@@ -216,9 +216,11 @@ export async function typeName(bridge: EvenAppBridge): Promise<void> {
   for (let i = 1; i <= NAME_TEXT.length; i += 1) {
     const slice = NAME_TEXT.slice(0, i)
     await setText(slice, false)
-    void setText(slice, true)
+    // 粗体副本每 2 个字符同步一次:真机通道比模拟器慢一个量级,每字两条 IPC 会把打字卡慢一倍
+    if (i % 2 === 0) void setText(slice, true)
     await sleep(TYPE_STEP_MS)
   }
+  void setText(NAME_TEXT, true) // 收尾对齐粗体副本
   await sleep(TYPE_HOLD_MS)
 }
 
