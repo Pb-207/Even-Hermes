@@ -14,6 +14,7 @@ export type Event =
   | { kind: 'reveal' }
   | { kind: 'phone_send'; text: string; images?: string[] }
   | { kind: 'gesture'; gesture: Gesture }
+  | { kind: 'stt_partial'; text: string }
   | { kind: 'stt_ok'; text: string }
   | { kind: 'stt_err'; message: string }
   | { kind: 'hermes_ok'; text: string }
@@ -34,9 +35,9 @@ export type State =
   | { kind: 'idle'; conversation: string; history?: HermesMessage[]; loading?: boolean; crumb?: string; desktop?: boolean;
       rowAnchor?: number | null; transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
   | { kind: 'recording'; conversation: string; startedAt: number; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
-      transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+      transcript?: string; partial?: string; timedOut?: boolean; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
   | { kind: 'transcribing'; conversation: string; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
-      transcript?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
+      transcript?: string; partial?: string; reply?: string; reveal?: number; streaming?: boolean; toolLabel?: string | null; toolNotes?: string[] }
   | { kind: 'thinking'; conversation: string; transcript: string; toolLabel: string | null; history?: HermesMessage[]; crumb?: string; desktop?: boolean; rowAnchor?: number | null;
       reply?: string; reveal?: number; streaming?: boolean; toolNotes?: string[] }
   | { kind: 'disconnected'; conversation: string }
@@ -371,16 +372,22 @@ export function reduce(state: State, event: Event): Transition {
       return { state, effects: [] };
 
     case 'recording':
+      if (event.kind === 'stt_partial') {
+        // 流式转写:边录边出字,渲染成视图里那一行用户输入
+        return { state: { ...state, partial: event.text }, effects: [{ kind: 'render' }] };
+      }
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes },
+          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, partial: state.partial, reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes },
           effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
         };
       }
       if (event.kind === 'recording_timeout') {
+        // 录音时长上限(30s):只停麦、保留已转写内容,不自动发送 ——
+        // 发送始终由镜腿点击确认(流式转写同样如此,服务端的 FINAL 不会触发发送)
         return {
-          state: { kind: 'transcribing', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, reply: state.reply, reveal: state.reveal, toolNotes: state.toolNotes },
-          effects: [{ kind: 'mic_off' }, { kind: 'transcribe' }, { kind: 'render' }],
+          state: { ...state, timedOut: true },
+          effects: [{ kind: 'mic_off' }, { kind: 'render' }],
         };
       }
       return { state, effects: [] };

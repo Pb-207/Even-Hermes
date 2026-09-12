@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { transcribe, SttError, type SttConfig } from './stt'
+import { transcribe, openSttStream, SttError, type SttConfig } from './stt'
 
 const CFG: SttConfig = { baseUrl: 'http://host:8000', apiKey: 'sk-test', model: 'whisper-1' }
 const WAV = new Blob([new Uint8Array([0, 1, 2])], { type: 'audio/wav' })
@@ -50,5 +50,88 @@ describe('transcribe', () => {
     await transcribe(CFG, WAV, ac.signal)
     const [, init] = (globalThis.fetch as any).mock.calls[0]
     expect(init.signal).toBe(ac.signal)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 流式(WebSocket):用一个假 WebSocket 验证握手、partial/final 与回落
+ * ------------------------------------------------------------------ */
+class FakeWS {
+  static last: FakeWS | null = null
+  static OPEN = 1
+  readyState = 0
+  binaryType = ''
+  url: string
+  sent: unknown[] = []
+  onopen: (() => void) | null = null
+  onmessage: ((ev: { data: string }) => void) | null = null
+  onerror: (() => void) | null = null
+  onclose: (() => void) | null = null
+  constructor(url: string) { this.url = url; FakeWS.last = this }
+  send(d: unknown) { this.sent.push(d) }
+  close() { this.readyState = 3; this.onclose?.() }
+  open() { this.readyState = 1; this.onopen?.() }
+  emit(o: unknown) { this.onmessage?.({ data: JSON.stringify(o) } as MessageEvent) }
+}
+const dg = (text: string, isFinal: boolean) => ({
+  type: 'Results', is_final: isFinal, channel: { alternatives: [{ transcript: text }] },
+})
+
+describe('openSttStream', () => {
+  it('opens ws:// with the key in the query string and sends the config JSON on open', () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    const st = openSttStream({ baseUrl: 'https://stt.example.com/', apiKey: 'sk-test', model: 'whisper-1' })
+    const ws = FakeWS.last!
+    expect(ws.url).toBe('wss://stt.example.com/?api_key=sk-test')
+    ws.open()
+    const cfg = JSON.parse(ws.sent[0] as string)
+    expect(cfg.config.sampleRate).toBe(16000)
+    expect(cfg.config.api_key).toBe('sk-test') // 浏览器不能带请求头,key 走 config 消息
+    expect(st.usable).toBe(false) // 还没收到 Started
+  })
+
+  it('emits partials and resolves finish() with the FINAL', async () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    const partials: string[] = []
+    const st = openSttStream(CFG, { onPartial: (t) => partials.push(t) })
+    const ws = FakeWS.last!
+    ws.open()
+    ws.emit({ type: 'Started' })
+    expect(st.usable).toBe(true)
+    ws.emit(dg('今天的', false))
+    ws.emit(dg('今天的实验做完了', false))
+    ws.emit(dg('今天的实验做完了，请汇总', true))
+    expect(partials).toEqual(['今天的', '今天的实验做完了'])
+    await expect(st.finish(50)).resolves.toBe('今天的实验做完了，请汇总')
+  })
+
+  it('falls back to the last partial when no FINAL arrives', async () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    const st = openSttStream(CFG)
+    const ws = FakeWS.last!
+    ws.open()
+    ws.emit({ type: 'Started' })
+    ws.emit(dg('说到一半', false))
+    await expect(st.finish(0)).resolves.toBe('说到一半')
+  })
+
+  it('reports unavailable (REST fallback) when the socket fails before Started', async () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    let unavailable = false
+    const st = openSttStream(CFG, { onUnavailable: () => { unavailable = true } })
+    FakeWS.last!.onerror?.()
+    expect(unavailable).toBe(true)
+    expect(st.usable).toBe(false)
+    await expect(st.finish(10)).resolves.toBeNull() // 交给 REST 整段转写
+  })
+
+  it('reports unavailable on an Error message from the server (e.g. bad key)', () => {
+    vi.stubGlobal('WebSocket', FakeWS as any)
+    let unavailable = false
+    openSttStream(CFG, { onUnavailable: () => { unavailable = true } })
+    const ws = FakeWS.last!
+    ws.open()
+    ws.emit({ type: 'Error', message: 'unauthorized' })
+    expect(unavailable).toBe(true)
   })
 })
