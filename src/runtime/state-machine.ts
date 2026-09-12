@@ -121,6 +121,7 @@ function scrollUpReset(state: State): Transition {
 }
 
 export function reduce(state: State, event: Event): Transition {
+
   // Device disconnect is universal — drop everything in flight.
   if (event.kind === 'device_disconnected') {
     if (state.kind === 'disconnected') return { state, effects: [] };
@@ -361,8 +362,15 @@ export function reduce(state: State, event: Event): Transition {
         const step = Math.min(8, Math.max(1, Math.ceil((full - cur) / 40)));
         return { state: { ...state, reveal: Math.min(full, cur + step) }, effects: [{ kind: 'render' }] };
       }
-      if (state.streaming && event.kind === 'hermes_delta') {
-        return { state: { ...state, reply: (state.reply ?? '') + event.text }, effects: [{ kind: 'render' }] };
+      // 不能用 state.streaming 当闸门:只要 delta/ok 到了就说明正在流式。
+      // 旧写法在第二轮(或上一轮尾巴)标志不为 true 时会静默丢弃事件,
+      // 表现为"回复被缓存,再点一下才一起显示"。
+      if (event.kind === 'hermes_delta') {
+        const frag = event.text ?? '';
+        const reply = state.reply ?? '';
+        // 重复投递(已在尾部)或空片段 → 忽略;新片段补上。这样既不重复渲染,也不丢尾巴。
+        if (!frag || reply.includes(frag)) return { state, effects: [] };
+        return { state: { ...state, streaming: true, reply: reply + frag }, effects: [{ kind: 'render' }] };
       }
       if (state.streaming && event.kind === 'hermes_tool') {
         const prev = state.toolMarks ?? [];
@@ -373,10 +381,11 @@ export function reduce(state: State, event: Event): Transition {
           : [...prev, { label, at: (state.reply ?? '').length }];
         return { state: { ...state, toolLabel: event.label, toolMarks: marks }, effects: [{ kind: 'render' }] };
       }
-      if (state.streaming && event.kind === 'hermes_ok') {
-        return { state: { ...state, streaming: false, reply: event.text, toolLabel: null }, effects: [{ kind: 'render' }] };
+      if (event.kind === 'hermes_ok') {
+        // 完成时把 reveal 推到全文:否则视图仍按旧的揭示位置截断,要等下次交互才"一起显示"
+        return { state: { ...state, streaming: false, reply: event.text, reveal: (event.text ?? '').length, toolLabel: null }, effects: [{ kind: 'render' }] };
       }
-      if (state.streaming && event.kind === 'hermes_err') {
+      if (event.kind === 'hermes_err') {
         return {
           state: { kind: 'error', conversation: state.conversation, message: event.message, lastTranscript: state.transcript ?? '', history: state.history, crumb: state.crumb, desktop: state.desktop, rowAnchor: state.rowAnchor },
           effects: [{ kind: 'render' }],
@@ -406,6 +415,14 @@ export function reduce(state: State, event: Event): Transition {
       return { state, effects: [] };
 
     case 'transcribing':
+      // 上一轮的流式尾巴可能还在路上:这里也要能收下完成事件,
+      // 否则第二轮/尾轮的回复文本会被丢掉(只能等下次单击重新加载历史才出现)
+      if (event.kind === 'hermes_ok') {
+        return {
+          state: { kind: 'idle', conversation: state.conversation, history: state.history, desktop: state.desktop, crumb: state.crumb, rowAnchor: state.rowAnchor, transcript: state.transcript, reply: event.text, reveal: (event.text ?? '').length, streaming: false, toolMarks: state.toolMarks },
+          effects: [{ kind: 'render' }],
+        }
+      }
       if (event.kind === 'gesture' && event.gesture === 'TAP') {
         return backToHistory(state, [{ kind: 'abort_inflight' }])
       }

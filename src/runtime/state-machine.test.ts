@@ -371,9 +371,16 @@ describe('reduce — streaming', () => {
     }
   });
 
-  it('idle(stream done) ignores hermes_delta and hermes_tool', () => {
-    expect(reduce(idle, { kind: 'hermes_delta', text: 'x' }).state).toBe(idle);
-    expect(reduce(idle, { kind: 'hermes_tool', label: 'reading' }).state).toBe(idle);
+  it('idle(stream done): 重复片段与迟到的工具事件被忽略,但新片段不会丢', () => {
+    const done: State = { ...idle, reply: 'hello world', streaming: false };
+    // 重复投递(内容已存在)→ 原样返回
+    expect(reduce(done, { kind: 'hermes_delta', text: 'world' }).state).toBe(done);
+    // 完成后的工具事件 → 忽略(避免插入空行)
+    expect(reduce(done, { kind: 'hermes_tool', label: 'reading' }).state).toBe(done);
+    // 真正缺的尾巴 → 补上(旧实现会整段丢弃,导致"攒着不显示")
+    const t = reduce(done, { kind: 'hermes_delta', text: ' !!' });
+    expect(t.state.kind).toBe('idle');
+    expect((t.state as unknown as { reply?: string }).reply).toBe('hello world !!');
   });
 
   it('thinking + hermes_ok (non-streaming path) still works and clears toolLabel', () => {

@@ -72,3 +72,30 @@ export class PcmRecorder {
     return out
   }
 }
+
+/**
+ * 归一化宿主送来的音频帧。
+ *
+ * SDK 文档:`audioPcm` 是宿主侧 `Uint8List`,经 JSON 序列化后**多为 `number[]` 或 base64 字符串**。
+ * 只判断 `instanceof Uint8Array` 会把其它形态的帧全部丢掉 → 录音没有内容、转写为空。
+ */
+export function toPcmBytes(raw: unknown): Uint8Array | null {
+  if (raw instanceof Uint8Array) return raw
+  if (Array.isArray(raw)) return raw.length ? Uint8Array.from(raw as number[]) : null
+  if (typeof raw === 'string') {
+    if (!raw) return null
+    try {
+      const bin = atob(raw)
+      const out = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+      return out
+    } catch {
+      return null
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    const vals = Object.values(raw as Record<string, unknown>)
+    if (vals.length && vals.every((v) => typeof v === 'number')) return Uint8Array.from(vals as number[])
+  }
+  return null
+}
